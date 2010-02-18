@@ -11,13 +11,13 @@
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
-SOURCES		:=	source ../../libcios/source ../wii_wbfs
+SOURCES		:=	source ../../../libcios/source
 DATA		:=	data  
-INCLUDES	:=  include ../tinyehci ../../libcios/include ../wii_wbfs
+INCLUDES	:=  include ../../../tinyehci ../../../libcios/include
 SCRIPTDIR	:=  scripts
 BIN			:=  bin
 
-STRIPIOS	:=  ../stripios/stripios.exe
+STRIPIOS	:=  ../../stripios/stripios.exe
 
 LIBS		:=	
 LIBDIRS		:=
@@ -110,7 +110,6 @@ LDFLAGS	= -g $(ARCH) -specs=$(SPECS) -T$(LINKSCRIPT)  $(LIBPATHS) $(LIBS) -Wl,--
 $(OUTPUT).elf: $(TARGET).elf
 	@echo stripping $(notdir $@)
 	@$(STRIPIOS) $< $@
-	#@cp -f $(OUTPUT).elf ../../ppc/data/$(TARGET).elf
 
 
 %.elf: $(OFILES)

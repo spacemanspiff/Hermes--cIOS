@@ -33,17 +33,26 @@ static u8 size_to_shift(u32 size)
 wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
                  rw_sector_callback_t write_hdsector,
                  void *callback_data,
-                    int hd_sector_size, int num_hd_sector __attribute((unused)), int reset)
+                    int hd_sector_size, int num_hd_sector __attribute((unused)), int partition, int reset)
 {
         int i=num_hd_sector,ret;
         u8 *ptr,*tmp_buffer = wbfs_ioalloc(hd_sector_size);
         u8 part_table[16*4];
+		u32 last_lba=0xFFFFFFFF;
+		int l=0;
         ret = read_hdsector(callback_data,0,1,tmp_buffer);
         if(ret)
-                return 0;
+			{
+		    wbfs_iofree(tmp_buffer);
+            return 0;
+			}
         //find wbfs partition
         wbfs_memcpy(part_table,tmp_buffer+0x1be,16*4);
+
         ptr = part_table;
+
+		
+
         for(i=0;i<4;i++,ptr+=16)
         { 
 		u32 part_lba = read_le32_unaligned(ptr+0x8);
@@ -61,22 +70,36 @@ wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
 			for(n=0;n<8;n++) // max 8 logic partitions (i think it is sufficient!)
 				{
 					ret = read_hdsector(callback_data,part_lba+next_lba2 ,1,tmp_buffer);
-					if(ret)
+					  if(ret)
+						{
+						wbfs_iofree(tmp_buffer);
 						return 0;
+						}
 
 					part_lba2=part_lba+next_lba2+read_le32_unaligned(tmp_buffer+0x1C6);
 					next_lba2=read_le32_unaligned(tmp_buffer+0x1D6);
 
 					ret = read_hdsector(callback_data,part_lba2,1,tmp_buffer);
-					if(ret)
+					  if(ret)
+						{
+						wbfs_iofree(tmp_buffer);
 						return 0;
+						}
 					 // verify there is the magic.
 					if (head->magic == wbfs_htonl(WBFS_MAGIC))
 						{
+
+						if(l==partition)
+							{
 							wbfs_t*p = wbfs_open_partition(read_hdsector,write_hdsector,
 													callback_data,hd_sector_size,0,part_lba2,reset);
 							wbfs_iofree(tmp_buffer);
 							return p;
+							}
+						else
+							{
+							if(part_lba2!=last_lba) {l++;last_lba=part_lba2;}
+							}
 						}
 
 					if(next_lba2==0) break;
@@ -88,20 +111,33 @@ wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
 					ret = read_hdsector(callback_data,part_lba,1,tmp_buffer);
 
 					if(ret)
+						{
+						wbfs_iofree(tmp_buffer);
 						return 0;
+						}
 					// verify there is the magic.
 					if (head->magic == wbfs_htonl(WBFS_MAGIC))
 					{
+
+					if(l==partition)
+							{
 							wbfs_t*p = wbfs_open_partition(read_hdsector,write_hdsector,
 													callback_data,hd_sector_size,0,part_lba,reset);
 							wbfs_iofree(tmp_buffer);
 							return p;
+							}
+					else
+							{
+							if(part_lba!=last_lba) {l++;last_lba=part_lba;}
+							}
+
 					}
 				}
         }
         if(reset)// XXX make a empty hd partition..
         {
         }
+	wbfs_iofree(tmp_buffer);
         return 0;
 }
 wbfs_t*wbfs_open_partition(rw_sector_callback_t read_hdsector,

@@ -41,7 +41,7 @@
 	// OH0 values
 	.EQU	ios_thread_arg, 4
 	.EQU	ios_thread_priority,	0x48
-	.EQU	ios_thread_stacksize, 0x3000
+	.EQU	ios_thread_stacksize, 0x4000
 	
 
 _start:	

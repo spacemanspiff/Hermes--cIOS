@@ -123,13 +123,12 @@ u32 message;
 		os_sync_before_read((void *) 0x13740000, 16 );
 
 		*((u32 *) 0x13740000)=n;
-		*((u32 *) 0x13740004)=os_get_thread_id();
-		*((u32 *) 0x13740008)=os_thread_get_priority();
+		*((u32 *) 0x13740004)= os_get_thread_id();
+		*((u32 *) 0x13740008)= os_thread_get_priority();
 
 		os_sync_after_write((void *) 0x13740000, 16 );
-		
 
-	  
+	
 		//os_stop_timer(tid);
 		//os_restart_timer(tid,1000*500);
 		}

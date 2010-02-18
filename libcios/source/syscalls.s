@@ -43,11 +43,6 @@ os_thread_stop:
 	syscall 0x6
 
 	.code 32
-	.global os_thread_stop2
-os_thread_stop2:
-	syscall 0x6
-
-	.code 32
 	.global os_thread_yield
 os_thread_yiel:
 	syscall 0x7

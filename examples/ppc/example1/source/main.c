@@ -9,7 +9,7 @@
 #include "unistd.h"
 
 #include "mload.h"
-#include "starlet_elf.h"
+#include "example1_elf.h"
 //#include "ehcmodule_elf.h"
 
 GXRModeObj *rmode;		// Graphics Mode Object
@@ -82,11 +82,11 @@ int ret;
 	my_thread_id=mload_run_thread(my_data_elf.start, my_data_elf.stack, my_data_elf.size_stack, my_data_elf.prio);
 	*/
 
-	printf("Loading starlet.elf\n");
+	printf("Loading example1.elf (Starlet)\n");
 
-	if(((u32) starlet_elf) & 3) {printf("Unaligned elf!\n"); goto out;}
+	if(((u32) example1_elf) & 3) {printf("Unaligned elf!\n"); goto out;}
 
-	mload_elf((void *) starlet_elf, &my_data_elf);
+	mload_elf((void *) example1_elf, &my_data_elf);
 
 	printf("Running... at 0x%x\n", (u32) my_data_elf.start);
 
@@ -129,6 +129,7 @@ int ret;
 		mload_seek(0x13740000, SEEK_SET);
 		mload_read(&data,32);
 		printf("\33[16;16H Starlet activity: %i Thid: %i Prio: 0x%x    \n",data[0],data[1],data[2]);
+		
 		VIDEO_WaitVSync();
 		}
 

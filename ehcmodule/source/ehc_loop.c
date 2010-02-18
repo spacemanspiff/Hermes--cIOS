@@ -82,7 +82,8 @@ int verbose = 0;
 #define ioctlv_u16(a) (*((u16*)(a).data))
 #define ioctlv_u32(a) (*((u32*)(a).data))
 #define ioctlv_voidp(a) (a).data
-wbfs_disc_t * wbfs_init_with_partition(u8*discid);
+
+wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition);
 
 
 #define WATCHDOG_TIMER 1000*1000*4
@@ -149,6 +150,7 @@ void *WBFS_Alloc(int size)
   ret= os_heap_alloc(heaphandle, size);
   if(ret==0)
 	{debug_printf("WBFS not enough memory! need %d\n",size);
+    my_sprint("WBFS not enough memory!", NULL);
     while(1) msleep(100);
 	}
   return ret;
@@ -158,6 +160,58 @@ void WBFS_Free(void *ptr)
         return os_heap_free(heaphandle, ptr);
 }
 
+void my_sprint(char *cad, char *s)
+{
+int n=strlen(cad);
+int m=0;
+int fd;
+os_sync_after_write(cad, n);
+if(s) {m=strlen(s);os_sync_after_write(s, m);}
+
+fd=os_open("/dev/fat/log", 1);
+if(fd<0) return;
+os_write(fd, cad, n);
+
+if(s)
+   os_write(fd, s, m);
+os_close(fd);
+}
+
+#if 0
+
+char my_log[256];
+
+void my_dump(char *cad, char *dat, int len)
+{
+int n,m;
+int fd;
+
+
+fd=ios_open("/dev/fat/log", 1);
+if(fd<0) return;
+
+n=0;
+while(*cad) {my_log[n]=*cad++;n++;}
+my_log[n]='\n';n++;
+
+for(m=0;m<len;m++)
+	{
+	if(n>=253) {ios_write(fd, my_log, n);n=0;}
+	my_log[n]=((*dat>>8) & 0xf)+48;if(my_log[n]>'9')  my_log[n]+=7; n++;
+	my_log[n]=((*dat) & 0xf)+48;if(my_log[n]>'9')  my_log[n]+=7; n++;
+    my_log[n]=((m & 15)!=15) ? ' ' : '\n'; n++;
+	dat++;
+	}
+
+if(n>0)
+	{
+	ios_sync_after_write((void *) cad, n);
+	ios_write(fd, my_log, n);
+	}
+
+ios_close(fd);
+}
+#endif
 
 int ehc_loop(void)
 {
@@ -168,6 +222,7 @@ int ehc_loop(void)
 
 	int must_read_sectors=0;
 
+    my_sprint("ehc loop entry", NULL);
 	
 	void* queuespace = os_heap_alloc(heaphandle, 0x40);
 
@@ -314,6 +369,7 @@ int ehc_loop(void)
                                         result = USBStorage_Init();
 										if(result>=0) must_read_sectors=1;
                                         ums_mode = message->fd;
+										if(result>=0) my_sprint("UMS Init", NULL); else  my_sprint("UMS fail", NULL);
                                         break;
                                 case USB_IOCTL_UMS_GET_CAPACITY:
                                         result =  USBStorage_Get_Capacity(ioctlv_voidp(vec[0]));
@@ -346,14 +402,17 @@ int ehc_loop(void)
 										break;
                                 case USB_IOCTL_WBFS_OPEN_DISC:
                                         ums_mode = message->fd;
+											
+										int partition=0;
                                         //    if (verbose)
                                                 debug_printf("ehc:use disc %s\n",ioctlv_voidp(vec[0]));
-                                         d = wbfs_init_with_partition(ioctlv_voidp(vec[0]));
+										if(vec[1].len==4) memcpy(&partition, ioctlv_voidp(vec[1]), 4);
+                                         d = wbfs_init_with_partition(ioctlv_voidp(vec[0]), partition);
                                          if(!d)
                                                result = -1;
                                          else
                                                 result = 0;
-
+                                        my_sprint("WBFS Open()", NULL);
 										must_read_sectors=1;
                                         break;
                                 case USB_IOCTL_WBFS_READ_DISC:

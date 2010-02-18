@@ -437,20 +437,22 @@ found:
 
     dev->max_lun = 1;
 
-	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_GET_MAX_LUN, 0, dev->interface, 1, max_lun);
+/*	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_GET_MAX_LUN, 0, dev->interface, 1, max_lun);
 	if(retval < 0 )
 		dev->max_lun = 1;
 	else
-		dev->max_lun = *max_lun;
+		dev->max_lun = (*max_lun+1);
 	
 
-	if(retval == USBSTORAGE_ETIMEDOUT)
-		dev->max_lun = 1;//goto free_and_return;
+	if(retval == USBSTORAGE_ETIMEDOUT)*/
+
+	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
+		dev->max_lun = 1; // max_lun can be from 1 to 16, but some devices do not support lun 
 	
 	retval = USBSTORAGE_OK;
 
-	if(dev->max_lun == 0)
-		dev->max_lun++;
+	/*if(dev->max_lun == 0)
+		dev->max_lun++;*/
 
 	/* taken from linux usbstorage module (drivers/usb/storage/transport.c) */
 	/*
@@ -478,12 +480,15 @@ free_and_return:
 	}
 	return 0;
 }
+void my_sprint(char *cad, char *s);
 
 s32 USBStorage_Close(usbstorage_handle *dev)
 {
         if(dev->buffer != NULL)
                 USB_Free(dev->buffer);
 	memset(dev, 0, sizeof(*dev));
+
+	my_sprint("USBStorage_Close()", NULL);
 	return 0;
 }
 
@@ -655,7 +660,8 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            if(retval == USBSTORAGE_ETIMEDOUT)
            {
                USBStorage_Reset(&__usbfd);
-               USBStorage_Close(&__usbfd); 
+               //USBStorage_Close(&__usbfd); 
+			   return -EINVAL;
                break;
            }
 
@@ -810,7 +816,7 @@ s32 USBStorage_Read_Sectors_ingame(u32 sector, u32 numSectors, void *buffer, int
 		{
 		  if(!unplug_procedure())
 			{
-			 retval=0;
+			 retval=0;n=0;
 			}
 
         usb_timeout=4000*1000; // 4 seconds to wait

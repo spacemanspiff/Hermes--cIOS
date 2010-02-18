@@ -737,7 +737,7 @@ int ehci_release_ports(void)
         int i;
         u32 __iomem	*status_reg = &ehci->regs->port_status[2];
         while(ehci_readl(&ehci->regs->port_status[2]) == 0x1000) udelay(100);// wait port 2 to init
-        msleep(1);// wait another msec..
+        msleep(100);// wait another msec..
         for(i = 0;i<ehci->num_port; i++){
           status_reg = &ehci->regs->port_status[i];
           u32 status = ehci_readl(status_reg);

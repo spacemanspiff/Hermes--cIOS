@@ -121,7 +121,7 @@ typedef struct wbfs_disc_s
 wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
                  rw_sector_callback_t write_hdsector,
                  void *callback_data,
-                 int hd_sector_size, int num_hd_sector, int reset);
+                 int hd_sector_size, int num_hd_sector, int partition, int reset);
 
 /*! @brief open a wbfs partition
    @param read_hdsector,write_hdsector: accessors to the partition

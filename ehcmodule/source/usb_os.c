@@ -58,6 +58,7 @@ void ehci_dma_unmap_bidir(dma_addr_t buf,size_t len)
         os_sync_before_read((void*)buf, len);
 }
 
+void my_sprint(char *cad, char *s);
 
 void *USB_Alloc(int size)
 {
@@ -65,6 +66,7 @@ void *USB_Alloc(int size)
   ret= os_heap_alloc(heap, size);
   if(ret==0)
 	{debug_printf("not enough memory! need %d\n",size);
+    my_sprint("USB Alloc: not enough memory!", NULL);
     while(1) msleep(100);
 	}
   return ret;

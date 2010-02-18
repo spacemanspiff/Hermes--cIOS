@@ -108,10 +108,12 @@ int usb_os_init(void);
 
 #define MLOAD_GET_EHCI_DATA		0x4D4C44A0
 
+
 int tiny_ehci_init(void)
 {
 
         ehci = &_ehci;
+
 
 		
         if(usb_os_init()<0)
@@ -126,9 +128,11 @@ int tiny_ehci_init(void)
 		os_close(fd);
 
 	//////////////////////////////////////////////////////////////////////////////////////////////
-	/* WARNING: This ignore the port 2 (external) and 3,4 (internals) for USB 2.0 operations    */
+	/* WARNING: This ignore the port 1 (external) and 2,3 (internals) for USB 2.0 operations    */
+	/* from cIOS mload 1.6 port 1 is forced to USB 1.1. Only port 0 can work as USB 2.0         */
 
 	ehci->num_port=1;
+
 
     /////////////////////////////////////////////////////////////////////////////////////////////
 	}

@@ -146,8 +146,10 @@ int tiny_ehci_init(void)
 	retval = ehci_init();
 	if (retval)
 		return retval; 
-
-        ehci_release_ports(); //quickly release none usb2 port
+	
+	
+    ehci_release_ports(); //quickly release none usb2 port
+    ehci_writel( PORT_OWNER, &ehci->regs->port_status[1]); // force port 1 to work as USB 1.1
 
 		
 

@@ -52,10 +52,19 @@ NOTE: i don´t necessary
 #endif
 */
 
-#define VERSION "0.2"
+#define VERSION "0.5"
+
+#define INPUT_TITLEID_H 1
+int INPUT_TITLEID_L= 36;
+int INPUT_VERSION= 1042;
+
+#define OUTPUT_TITLEID_H 1
+int OUTPUT_TITLEID_L=222;
+
 
 // These parameters will download IOS31, modify it, and install it as IOS222
-
+#if 0
+// desactiva
 #if IOS36
 #define INPUT_TITLEID_H 1
 #define INPUT_TITLEID_L 36
@@ -65,6 +74,10 @@ NOTE: i don´t necessary
 #define INPUT_TITLEID_H 1
 #define INPUT_TITLEID_L 38
 #define INPUT_VERSION 3610
+#elif IOS60
+#define INPUT_TITLEID_H 1
+#define INPUT_TITLEID_L 60
+#define INPUT_VERSION 6174
 #else
 #error "Hey! i need  IOS36 or IOS38 defined!"
 #endif
@@ -84,7 +97,10 @@ NOTE: i don´t necessary
 #endif
 #endif
 
-#define OUTPUT_VERSION 1
+// desactiva
+#endif
+
+#define OUTPUT_VERSION 2
 
 #if 0
 // to get modules
@@ -93,8 +109,8 @@ NOTE: i don´t necessary
 #undef INPUT_TITLEID_L
 #undef INPUT_VERSION
 #define INPUT_TITLEID_H 1
-#define INPUT_TITLEID_L 60
-#define INPUT_VERSION 6174
+#define INPUT_TITLEID_L 37
+#define INPUT_VERSION 3612
 #endif
 
 #define ALIGN(a,b) ((((a)+(b)-1)/(b))*(b))
@@ -105,69 +121,142 @@ int useSd = 1;
 int tmd_dirty = 0, tik_dirty = 0;
 
 
-
-#ifdef IOS36
 u32 DIP_patch1_pos=0x6800;
 u32 DIP_DVD_enable_orig_pos1=0x964;
 u32 DIP_DVD_enable_orig_pos2=0x9F0;
 
 u32 DIP_handle_di_cmd=0x112c;
+u8 *patch_handle_di_cmd=NULL;
+int len_patch_handle_di_cmd=0;
 
-unsigned char patch_handle_di_cmd[12] = {
+u32 DIP_handle_di_cmd_reentry=0x8248;
+u32 len_handle_di_cmd_reentry=0;
+u8 *handle_di_cmd_reentry=NULL;
+
+u32 ES_ioctvl_patch_pos=0x12ab0;
+u8 *ES_patch_ioctvl=NULL;
+
+
+u8 patch_handle_di_cmd36[12] = {
 	0x4B, 0x01, 0x68, 0x1B, 0x47, 0x18, 0x00, 0x00,/*addr to get handle_di_cmd*/ 0x20, 0x20, 0x90, 0x40 
 };
 
-u32 DIP_handle_di_cmd_reentry=0x8248;
-
 // handle_di_cmd_reentry= 0x20209030 (default)
-u8 handle_di_cmd_reentry[24] = {
+u8 handle_di_cmd_reentry36[24] = {
 	0x20, 0x20, 0x90, 0x44+1,
 	0xB5, 0xF0, 0x46, 0x5F, 0x46, 0x56, 0x46, 0x4D, 0x46, 0x44, 0xB4, 0xF0, 0x4B, 0x00, 0x47, 0x18, 
 	/* handle_di_cmd_reentry */ 0x20, 0x20, 0x10, 0x10+1 // (Thumb)
 };
 
-
 // patch sub_201000CC (ES_ioctvl)
-#ifdef ADD_ES_PLUGIN
-
-u32 ES_ioctvl_patch_pos=0x12ab0;
-
-u8 ES_patch_ioctvl[8] = {
+u8 ES_patch_ioctvl36[8] = {
 	0x49, 0x00, 0x47, 0x08, /* addr in mload.elf */ 0x13, 0x8c, 0x00, 0x10+1 // (Thumb)
 };
 
-	//138C0010
-#endif
 
-#endif
-
-#ifdef IOS38
-u32 DIP_patch1_pos=0x6494;
-u32 DIP_DVD_enable_orig_pos1=0x68c;
-u32 DIP_DVD_enable_orig_pos2= 0x718;
-u32 DIP_handle_di_cmd= 0xe54;
-
-unsigned char patch_handle_di_cmd[12] = {
+u8 patch_handle_di_cmd38[12] = {
 	0x4B, 0x01, 0x68, 0x1B, 0x47, 0x18, 0x00, 0x00,/*addr to get handle_di_cmd*/ 0x20, 0x20, 0x80, 0x30
 };
 
-u32 DIP_handle_di_cmd_reentry=0x7ecc;
-
 // handle_di_cmd_reentry= 0x20208030 (default)
-u8 handle_di_cmd_reentry[24] = {
+u8 handle_di_cmd_reentry38[24] = {
 	0x20, 0x20, 0x80, 0x34+1,
 	0xB5, 0xF0, 0x46, 0x5F, 0x46, 0x56, 0x46, 0x4D, 0x46, 0x44, 0xB4, 0xF0, 0x4B, 0x00, 0x47, 0x18, 
 	/* handle_di_cmd_reentry */  0x20, 0x20, 0x0D, 0x38+1 // (Thumb)
 };
 
-// patch sub_201000CC (ES_ioctvl)
-#ifdef ADD_ES_PLUGIN
 
-u32 ES_ioctvl_patch_pos=0x12ab0 ;// 0x12b3c; NOTE: remember you that i am using ES from IOS36...
-u8 ES_patch_ioctvl[8] = {
-	0x49, 0x00, 0x47, 0x08,  /* addr in mload.elf */ 0x13, 0x8c, 0x00, 0x10+1 // (Thumb)
+
+void adjust_patch(int ios)
+{
+switch(ios)
+	{
+	case 36:
+		DIP_patch1_pos=0x6800;
+		DIP_DVD_enable_orig_pos1=0x964;
+		DIP_DVD_enable_orig_pos2=0x9F0;
+		DIP_handle_di_cmd=0x112c;
+		patch_handle_di_cmd=patch_handle_di_cmd36;
+		len_patch_handle_di_cmd=sizeof(patch_handle_di_cmd36);
+		DIP_handle_di_cmd_reentry=0x8248;
+		handle_di_cmd_reentry=handle_di_cmd_reentry36;
+		len_handle_di_cmd_reentry=sizeof(handle_di_cmd_reentry36);
+		ES_ioctvl_patch_pos=0x12ab0;
+		ES_patch_ioctvl=ES_patch_ioctvl36;
+		break;
+	case 38:
+		DIP_patch1_pos=0x6494;
+		DIP_DVD_enable_orig_pos1=0x68c;
+		DIP_DVD_enable_orig_pos2= 0x718;
+		DIP_handle_di_cmd= 0xe54;
+		patch_handle_di_cmd=patch_handle_di_cmd38;
+		len_patch_handle_di_cmd=sizeof(patch_handle_di_cmd38);
+		DIP_handle_di_cmd_reentry=0x7ecc;
+		handle_di_cmd_reentry=handle_di_cmd_reentry38;
+		len_handle_di_cmd_reentry=sizeof(handle_di_cmd_reentry38);
+		ES_ioctvl_patch_pos=0x12ab0;
+		ES_patch_ioctvl=ES_patch_ioctvl36; // 0x12b3c; NOTE: remember you that i am using ES from IOS36...
+		break;
+	case 37:
+		// use IOS36 DIP and ES
+		DIP_patch1_pos=0x6800;
+		DIP_DVD_enable_orig_pos1=0x964;
+		DIP_DVD_enable_orig_pos2=0x9F0;
+		DIP_handle_di_cmd=0x112c;
+		patch_handle_di_cmd=patch_handle_di_cmd36;
+		len_patch_handle_di_cmd=sizeof(patch_handle_di_cmd36);
+		DIP_handle_di_cmd_reentry=0x8248;
+		handle_di_cmd_reentry=handle_di_cmd_reentry36;
+		len_handle_di_cmd_reentry=sizeof(handle_di_cmd_reentry36);
+		ES_ioctvl_patch_pos=0x12ab0;
+		ES_patch_ioctvl=ES_patch_ioctvl36;
+		break;
+	case 60:
+		// use IOS36 DIP and ES
+		DIP_patch1_pos=0x6800;
+		DIP_DVD_enable_orig_pos1=0x964;
+		DIP_DVD_enable_orig_pos2=0x9F0;
+		DIP_handle_di_cmd=0x112c;
+		patch_handle_di_cmd=patch_handle_di_cmd36;
+		len_patch_handle_di_cmd=sizeof(patch_handle_di_cmd36);
+		DIP_handle_di_cmd_reentry=0x8248;
+		handle_di_cmd_reentry=handle_di_cmd_reentry36;
+		len_handle_di_cmd_reentry=sizeof(handle_di_cmd_reentry36);
+		ES_ioctvl_patch_pos=0x12ab0;
+		ES_patch_ioctvl=ES_patch_ioctvl36;
+		break;
+	
+	default:
+		printf("Unsupported IOS\n");
+		exit(0);
+		break;
+	}
+
+}
+
+
+
+#if 0
+
+// use IOS 60 DIP
+u32 DIP_patch1_pos=0x671c;
+u32 DIP_DVD_enable_orig_pos1=0x6e4;
+u32 DIP_DVD_enable_orig_pos2= 0x774;
+u32 DIP_handle_di_cmd= 0x1020;
+
+u8 patch_handle_di_cmd[12] = {
+	0x4B, 0x01, 0x68, 0x1B, 0x47, 0x18, 0x00, 0x00,/*addr to get handle_di_cmd*/ 0x20, 0x20, 0x80, 0x30
 };
-#endif
+
+u32 DIP_handle_di_cmd_reentry=0x8058;
+
+// handle_di_cmd_reentry= 0x20208030 (default)
+u8 handle_di_cmd_reentry[24] = {
+	0x20, 0x20, 0x80, 0x34+1,
+	0xB5, 0xF0, 0x46, 0x5F, 0x46, 0x56, 0x46, 0x4D, 0x46, 0x44, 0xB4, 0xF0, 0x4B, 0x00, 0x47, 0x18, 
+	/* handle_di_cmd_reentry */  0x20, 0x20, 0x0f, 0x04+1 // (Thumb)
+};
+
 
 #endif
 
@@ -716,6 +805,7 @@ sleep(5);
 int main(int argc, char **argv) {
 	int rv;
 	s32 pressed;
+	int selected=0;
 	
 	atexit(fun_exit);
 	console_setup();
@@ -724,7 +814,7 @@ int main(int argc, char **argv) {
 	printf("This version includes optimizations made by Waninkoko and Hermes\n");
         printf("USB2/wbfs support by Kwiirk\n");
 	printf("\n");
-	printf("cIOS installer v%d by WiiGator.\n", OUTPUT_VERSION);
+	printf("cIOS installer v%d by Hermes.\n", OUTPUT_VERSION);
 	printf("If you get an error, you need to downgrade your Wii first.\n");
 	printf("\n");
 	printf("USE ON YOUR OWN RISK!\n");
@@ -748,6 +838,113 @@ int main(int argc, char **argv) {
 		VIDEO_WaitVSync();
 	}
 #endif
+	
+	selected=1;
+
+	while(1)
+	{
+	printf("\33[2J\n\n\n\33[42m cIOS Installer (Select Custom IOS)\33[40m \n\n\n");
+    if(selected==0) printf("     >\33[44mInstall Custom IOS 202 (Homebrew)\33[40m\n\n"); else printf("      Install Custom IOS 202 (Homebrew)\n\n");
+	if(selected==1) printf("     >\33[44mInstall Custom IOS 222 (Default) \33[40m\n\n"); else printf("      Install Custom IOS 222 (Default) \n\n");
+	if(selected==2) printf("     >\33[44mInstall Custom IOS 223           \33[40m\n\n"); else printf("      Install Custom IOS 223           \n\n");
+
+	printf("\n\n     Press A to select or B to Abort\n\n");
+
+		WPAD_ScanPads();
+		pressed = WPAD_ButtonsDown(0);
+
+		if(pressed) {
+			if (pressed == WPAD_BUTTON_A) {
+				break;
+			} 
+			if (pressed == WPAD_BUTTON_B) {
+				printf("Aborted, exiting...\n");
+				return 0;
+			} 
+			if (pressed == WPAD_BUTTON_UP) {
+				selected--;if(selected<0) selected=0;
+			} 
+
+			if (pressed == WPAD_BUTTON_DOWN) {
+				selected++;if(selected>2) selected=2;
+			}
+		}
+		VIDEO_WaitVSync();
+	}
+
+    switch(selected)
+	{
+	case 0:
+        OUTPUT_TITLEID_L=202;
+		break;
+	case 1:
+        OUTPUT_TITLEID_L=222;
+		break;
+	case 2:
+        OUTPUT_TITLEID_L=223;
+		break;
+	}
+
+
+	selected=0;
+
+	while(1)
+	{
+	printf("\33[2J\n\n\n\33[42m cIOS Installer (Select IOS Base)\33[40m \n\n\n");
+    if(selected==0) printf("     >\33[44mUse IOS 36 (Default)             \33[40m\n\n"); else printf("      Use IOS 36 (Default)             \n\n");
+	if(selected==1) printf("     >\33[44mUse IOS 37 merged with IOS 36    \33[40m\n\n"); else printf("      Use IOS 37 merged with IOS 36    \n\n");
+	if(selected==2) printf("     >\33[44mUse IOS 38 merged with IOS 36    \33[40m\n\n"); else printf("      Use IOS 38 merged with IOS 36    \n\n");
+	if(selected==3) printf("     >\33[44mUse IOS 60 merged with IOS 36    \33[40m\n\n"); else printf("      Use IOS 60 merged with IOS 36    \n\n");
+	
+	printf("\n\n     Press A to select or B to Abort\n\n");
+
+		WPAD_ScanPads();
+		pressed = WPAD_ButtonsDown(0);
+
+		if(pressed) {
+			if (pressed == WPAD_BUTTON_A) {
+				break;
+			} 
+			if (pressed == WPAD_BUTTON_B) {
+				printf("Aborted, exiting...\n");
+				return 0;
+			} 
+			if (pressed == WPAD_BUTTON_UP) {
+				selected--;if(selected<0) selected=0;
+			} 
+
+			if (pressed == WPAD_BUTTON_DOWN) {
+				selected++;if(selected>3) selected=3;
+			}
+		}
+		VIDEO_WaitVSync();
+	}
+
+	switch(selected)
+	{
+	case 0:
+        // IOS 36
+		INPUT_TITLEID_L= 36;
+		INPUT_VERSION= 1042;
+		break;
+	case 1:
+        // IOS 37
+		INPUT_TITLEID_L= 37;
+		INPUT_VERSION= 3612;
+		break;
+	case 2:
+        // IOS 38
+		INPUT_TITLEID_L= 38;
+		INPUT_VERSION= 3610;
+		break;
+	case 3:
+        // IOS 60
+		INPUT_TITLEID_L=60;
+		INPUT_VERSION=6174;
+		break;
+	}
+	adjust_patch(INPUT_TITLEID_L);
+	
 	if (fatInitDefault()) {
 		chdir ("fat0:/");
 	}
@@ -777,6 +974,9 @@ int apply_patch(u8 *data, u32 offset, u8 *orig, u32 orig_size, u8 *patch, u32 pa
 u8 *ES_decrypted_buf=NULL;
 u32 ES_content_size=0;
 
+u8 *DIP_decrypted_buf=NULL;
+u32 DIP_content_size=0;
+
 // to get ES title from IOS 36
 static int patchmii2(void)
 {
@@ -793,6 +993,7 @@ static int patchmii2(void)
 // unless you have performed extensive testing and are willing to take on the risk
 // of bricking the systems of people to whom you give this code.  -bushing
 
+/*
 	if ((OUTPUT_TITLEID_H == 1) && (OUTPUT_TITLEID_L == 2)) {
 		printf("Sorry, I won't modify the system menu; too dangerous. :(\n");
 		while(1);
@@ -802,7 +1003,7 @@ static int patchmii2(void)
 		printf("Sorry, I won't modify IOS30; too dangerous. :(\n");
 		while(1);
   	}
-
+*/
 	printvers();
   
 	int retval;
@@ -895,7 +1096,16 @@ static int patchmii2(void)
 	debug_printf("Downloading contents: \n");
 	static char cidstr[32];
 	u16 i;
-	for (i=0xe;i<0xf;i++) {
+	for (i=0x0;i<0xf;i++) {
+		if(INPUT_TITLEID_L==37 || INPUT_TITLEID_L==60)
+		{
+			if(i!=0xe && i!=0x1) continue;
+		}
+		else
+		{
+			if(i!=0xe) continue;
+		}
+	
 	   debug_printf("Downloading part %d/%d (%uK): ", i+1, 
 					p_tmd->num_contents, p_cr[i].size / 1024);
 	   sprintf(cidstr, "%08x", p_cr[i].cid);
@@ -948,14 +1158,29 @@ static int patchmii2(void)
 		
 			}
 
-	ES_decrypted_buf=decrypted_buf;
-    ES_content_size=content_size;
+	if(i==0x1)
+		{
+		DIP_decrypted_buf=decrypted_buf;
+		DIP_content_size=content_size;
+		}
+
+	if(i==0xe)
+		{
+		ES_decrypted_buf=decrypted_buf;
+		ES_content_size=content_size;
+		}
 
 	   	free(content_buf);
 	}
 
   	debug_printf("Done \n");
 
+if(INPUT_TITLEID_L!=37 && INPUT_TITLEID_L!=60)
+	{
+	// only to pass the fail test
+	DIP_decrypted_buf=ES_decrypted_buf;
+	DIP_content_size=0; 
+	}
 	return(0);
 }
 
@@ -976,7 +1201,7 @@ FILE *fd;
 // unless you have performed extensive testing and are willing to take on the risk
 // of bricking the systems of people to whom you give this code.  -bushing
 
-	if ((OUTPUT_TITLEID_H == 1) && (OUTPUT_TITLEID_L == 2)) {
+/*	if ((OUTPUT_TITLEID_H == 1) && (OUTPUT_TITLEID_L == 2)) {
 		printf("Sorry, I won't modify the system menu; too dangerous. :(\n");
 		while(1);
   	}
@@ -985,17 +1210,19 @@ FILE *fd;
 		printf("Sorry, I won't modify IOS30; too dangerous. :(\n");
 		while(1);
   	}
+*/
 
-
-#ifdef IOS38
-// to get dev/es from IOS36 (Yes, to use with IOS38)
-if(patchmii2() !=0 || ES_decrypted_buf==NULL)
+if(INPUT_TITLEID_L==37 || INPUT_TITLEID_L==38 || INPUT_TITLEID_L==60)
 	{
-	perror("Failed to adquire IOS36 file ");
-		return(1);
+	// to get dev/es from IOS36 (Yes, to use with IOS38)
+	if(patchmii2() !=0 || ES_decrypted_buf==NULL || DIP_decrypted_buf==NULL)
+		{
+		perror("Failed to adquire IOS36 file ");
+			return(1);
+		}
 	}
-#endif
 	printvers();
+  
  
 	int retval;
 
@@ -1026,6 +1253,7 @@ if(patchmii2() !=0 || ES_decrypted_buf==NULL)
 		}
 
   	debug_printf("Downloading IOS%d metadata: ..", INPUT_TITLEID_L);
+	sleep(2);
 	snprintf(tmdname, sizeof(tmdname),"tmd.%d", INPUT_VERSION);
   	retval = get_nus_object(INPUT_TITLEID_H, INPUT_TITLEID_L, INPUT_VERSION, tmdname, &temp_tmdbuf, &tmdsize);
   	if (retval<0) {
@@ -1156,9 +1384,23 @@ sprintf(name,"fat0:/modulo_%s.elf",cidstr);
 			case 0x00000000:
 				break;
 
+			
+
 			case 0x00000001: /* DIP */
-#if defined(IOS36) || defined(IOS38)
-printf("DIP Patch\n");
+           
+		   if(INPUT_TITLEID_L==36 || INPUT_TITLEID_L==38 || INPUT_TITLEID_L==60)
+				{
+
+				printf("DIP Patch\n");
+				if(INPUT_TITLEID_L==60)
+					{
+					// use IOS 36 DIP
+					free(decrypted_buf);
+					decrypted_buf= DIP_decrypted_buf;
+					p_cr[i].size=DIP_content_size;
+					content_size=DIP_content_size;
+					}
+         
 
 				if (!apply_patch(decrypted_buf, DIP_patch1_pos, DIP_orig1, sizeof(DIP_orig1), DIP_patch1, sizeof(DIP_patch1))) {
 					printf("DIP patch 1 failed.\n");
@@ -1176,47 +1418,45 @@ printf("DIP Patch\n");
 				}
 
 
-#ifdef ADD_DIP_PLUGIN
-				/* Replace function handle DI command. */
-				
-				if (!apply_patch(decrypted_buf, DIP_handle_di_cmd, DIP_handle_di_cmd_orig, sizeof(DIP_handle_di_cmd_orig),
-					patch_handle_di_cmd,sizeof (patch_handle_di_cmd))) {
-					printf("DIP A8 patch failed.\n");
-					return 0;
-				}
-
-				#if defined(IOS36) || defined(IOS38)
-		
-				// apply patch directly
-				memcpy(&decrypted_buf[DIP_handle_di_cmd_reentry], handle_di_cmd_reentry,sizeof(handle_di_cmd_reentry));
+				if(OUTPUT_TITLEID_L!=202)
+					{
+					/* Replace function handle DI command. */
 			
+					if (!apply_patch(decrypted_buf, DIP_handle_di_cmd, DIP_handle_di_cmd_orig, sizeof(DIP_handle_di_cmd_orig),
+						patch_handle_di_cmd,len_patch_handle_di_cmd)) {
+						printf("DIP A8 patch failed.\n");
+						return 0;
+						}
 
-				#else
-				int rv = add_dip_plugin(&decrypted_buf);
-				if (rv <= 0) {
-					debug_printf("DIP additional patch failed! (rv = %d)\n", rv);
-					return(1);
-				}
-				p_cr[i].size = rv;
-				#endif
-				content_size = round_up(p_cr[i].size, 0x40);
+					debug_printf("Patched DIP handle cmd.\n");
+		
+					// apply patch directly
+					memcpy(&decrypted_buf[DIP_handle_di_cmd_reentry], handle_di_cmd_reentry, len_handle_di_cmd_reentry);
+		
+					}
 				
-#endif
+				
+		
 				debug_printf("Patched DIP.\n");
 				update_tmd = 1;
-#endif
+				}
+
 				break;
         
-		#ifdef IOS38
-			case 0x00000011: /* FFS, ES, IOSP */
-	
+		
+			case 0x0000000e: /* FFS, ES, IOSP */
+				 if(INPUT_TITLEID_L==60)
+					{
+					// use IOS 36 ES
+					free(decrypted_buf);
+					decrypted_buf= ES_decrypted_buf;
+					p_cr[i].size=ES_content_size;
+					content_size=ES_content_size;
+					printf("Replaced ES\n");
+					}
+
 				printf("Patch ES\n");
-                memcpy(decrypted_buf, ES_decrypted_buf, ES_content_size);
-				free(ES_decrypted_buf);
-		#endif
-		#ifdef IOS36
-			case  0x0000000e: /* FFS, ES, IOSP */
-		#endif
+
 				if (!apply_patch(decrypted_buf, ES_patch1_pos, ES_orig1, sizeof(ES_orig1), ES_patch1, sizeof(ES_patch1))) {
 					printf("IOS patch 1 failed.\n");
 					return 0;
@@ -1233,17 +1473,161 @@ printf("DIP Patch\n");
 					printf("IOS patch 4 failed.\n");
 					return 0;
 				}
-				#ifdef  ADD_ES_PLUGIN
 
-				if (!apply_patch(decrypted_buf, ES_ioctvl_patch_pos, ES_ioctlv_orig, sizeof(ES_ioctlv_orig), ES_patch_ioctvl, sizeof(ES_patch_ioctvl))) {
-					printf("IOS patch Ioctlv failed.\n");
-					return 0;
-				}
-				#endif
+				if(OUTPUT_TITLEID_L!=202)
+					{
+
+					if (!apply_patch(decrypted_buf, ES_ioctvl_patch_pos, ES_ioctlv_orig, sizeof(ES_ioctlv_orig), ES_patch_ioctvl, 8)) {
+						printf("IOS patch Ioctlv failed.\n");
+						return 0;
+						}
+					}
 				
 	
 
 				update_tmd = 1;
+
+				break;
+        
+			case 0x00000010: /* DIP */
+           
+		    if(INPUT_TITLEID_L==37)
+				{
+
+				printf("DIP Patch\n");
+			
+				// use IOS 36 DIP
+				free(decrypted_buf);
+				decrypted_buf= DIP_decrypted_buf;
+				p_cr[i].size=DIP_content_size;
+				content_size=DIP_content_size;
+				
+
+				if (!apply_patch(decrypted_buf, DIP_patch1_pos, DIP_orig1, sizeof(DIP_orig1), DIP_patch1, sizeof(DIP_patch1))) {
+					printf("DIP patch 1 failed.\n");
+					return 0;
+				}
+			
+				if (!apply_patch(decrypted_buf, DIP_DVD_enable_orig_pos1, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
+					printf("DIP DVD enable patch 1 failed.\n");
+					return 0;
+				}
+
+				if (!apply_patch(decrypted_buf, DIP_DVD_enable_orig_pos2, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
+					printf("DIP DVD enable patch 2 failed.\n");
+					return 0;
+				}
+
+
+				if(OUTPUT_TITLEID_L!=202)
+					{
+					/* Replace function handle DI command. */
+			
+					if (!apply_patch(decrypted_buf, DIP_handle_di_cmd, DIP_handle_di_cmd_orig, sizeof(DIP_handle_di_cmd_orig),
+						patch_handle_di_cmd,len_patch_handle_di_cmd)) {
+						printf("DIP A8 patch failed.\n");
+						return 0;
+						}
+
+					debug_printf("Patched DIP handle cmd.\n");
+		
+					// apply patch directly
+					memcpy(&decrypted_buf[DIP_handle_di_cmd_reentry], handle_di_cmd_reentry, len_handle_di_cmd_reentry);
+		
+					}
+				
+				
+		
+				debug_printf("Patched DIP.\n");
+				update_tmd = 1;
+				}
+				break;
+        
+			case 0x00000011: /* FFS, ES, IOSP */
+			 if(INPUT_TITLEID_L==38)
+				{ // 1
+				free(decrypted_buf);
+				decrypted_buf= ES_decrypted_buf;
+				p_cr[i].size=ES_content_size;
+				content_size=ES_content_size;
+				printf("Replaced ES\n");
+				
+				printf("Patch ES\n");
+		
+				if (!apply_patch(decrypted_buf, ES_patch1_pos, ES_orig1, sizeof(ES_orig1), ES_patch1, sizeof(ES_patch1))) {
+					printf("IOS patch 1 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch2_pos, ES_orig2, sizeof(ES_orig2), ES_patch2, sizeof(ES_patch2))) {
+					printf("IOS patch 2 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch3_pos, ES_orig3, sizeof(ES_orig3), ES_patch3, sizeof(ES_patch3))) {
+					printf("IOS patch 3 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch4_pos, ES_orig4, sizeof(ES_orig4), ES_patch4, sizeof(ES_patch4))) {
+					printf("IOS patch 4 failed.\n");
+					return 0;
+				}
+
+				if(OUTPUT_TITLEID_L!=202)
+					{
+
+					if (!apply_patch(decrypted_buf, ES_ioctvl_patch_pos, ES_ioctlv_orig, sizeof(ES_ioctlv_orig), ES_patch_ioctvl, 8)) {
+						printf("IOS patch Ioctlv failed.\n");
+						return 0;
+						}
+					}
+				
+	
+
+				update_tmd = 1;
+				} // 1
+
+				break;
+
+			 case 0x0000001b: /* FFS, ES, IOSP */
+			 if(INPUT_TITLEID_L==37)
+				{ // 1
+				free(decrypted_buf);
+				decrypted_buf= ES_decrypted_buf;
+				p_cr[i].size=ES_content_size;
+				content_size=ES_content_size;
+				printf("Replaced ES\n");
+				
+				printf("Patch ES\n");
+		
+				if (!apply_patch(decrypted_buf, ES_patch1_pos, ES_orig1, sizeof(ES_orig1), ES_patch1, sizeof(ES_patch1))) {
+					printf("IOS patch 1 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch2_pos, ES_orig2, sizeof(ES_orig2), ES_patch2, sizeof(ES_patch2))) {
+					printf("IOS patch 2 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch3_pos, ES_orig3, sizeof(ES_orig3), ES_patch3, sizeof(ES_patch3))) {
+					printf("IOS patch 3 failed.\n");
+					return 0;
+				}
+				if (!apply_patch(decrypted_buf, ES_patch4_pos, ES_orig4, sizeof(ES_orig4), ES_patch4, sizeof(ES_patch4))) {
+					printf("IOS patch 4 failed.\n");
+					return 0;
+				}
+
+				if(OUTPUT_TITLEID_L!=202)
+					{
+
+					if (!apply_patch(decrypted_buf, ES_ioctvl_patch_pos, ES_ioctlv_orig, sizeof(ES_ioctlv_orig), ES_patch_ioctvl, 8)) {
+						printf("IOS patch Ioctlv failed.\n");
+						return 0;
+						}
+					}
+				
+	
+
+				update_tmd = 1;
+				} // 1
 
 				break;
 

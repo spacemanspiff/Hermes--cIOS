@@ -4,16 +4,8 @@
 #define __iomem
 
 typedef unsigned long uint32_t;
-typedef char bool;
 
-#ifndef IOS_SYSCALLS_H
-typedef unsigned long u32;
-typedef signed long s32;
-typedef unsigned short u16;
-typedef unsigned char u8;
-typedef char s8;
-typedef unsigned long long u64;
-#endif
+#include "types.h"
 
 #define __u32 u32
 #define __le32 u32
@@ -29,9 +21,7 @@ struct timer_list
 {
         int time;
 };
-enum{ false=0,
-      true
-};
+
 enum{
         ENODEV =1,
         ETIMEDOUT,

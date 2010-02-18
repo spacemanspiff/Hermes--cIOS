@@ -52,7 +52,13 @@ void usleep(u32 time)
 {
 u32 message;
 
+	os_message_queue_send(timer1_queuehandle, 0x555, 0);
 	os_restart_timer(timer1_id, time);
+    while(1)
+		{
+		os_message_queue_receive(timer1_queuehandle,(void *) &message, 0);
+		if(message==0x555) break;
+		}
 	os_message_queue_receive(timer1_queuehandle,(void *) &message, 0);
 	os_stop_timer(timer1_id);
 
@@ -81,7 +87,7 @@ heaphandle = os_heap_create(heapspace, sizeof(heapspace));
 void* timer1_queuespace = os_heap_alloc(heaphandle, 0x40);
 
 timer1_queuehandle = os_message_queue_create(timer1_queuespace, 16);
-timer1_id=os_create_timer(1000*1000, 1, timer1_queuehandle, 0x666);
+timer1_id=os_create_timer(1000*1000, 100, timer1_queuehandle, 0x666);
 os_stop_timer(timer1_id);
 
     if(tiny_ehci_init()<0) return -1;

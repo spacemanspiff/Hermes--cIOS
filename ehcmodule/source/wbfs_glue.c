@@ -57,7 +57,7 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
         return 0;
 }
 
-wbfs_disc_t * wbfs_init_with_partition(u8*discid)
+wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 {
         wbfs_t *p;
         USBStorage_Init();
@@ -66,7 +66,7 @@ wbfs_disc_t * wbfs_init_with_partition(u8*discid)
         if (n_sec==0){
                 return 0; //no hd
         }
-        p = wbfs_open_hd(read_sector,0,0,sec_size,n_sec,0);
+        p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0);
         if(!p) // no partition
                 return NULL;
         return wbfs_open_disc( p, discid);
