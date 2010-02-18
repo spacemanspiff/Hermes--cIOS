@@ -13,17 +13,42 @@
 #include "elf.h"
 #include "add_dip_plugin.h"
 #include "debug_printf.h"
-#include "dip_plugin_bin.h"
 
+
+#if 0 
+// disabled
+// XXXXXXXXXXXXXXXXXXXXX
+
+#include "dip_plugin_bin.h"
 #define round_up(x,n) (-(-(x) & -(n)))
 
 /** Binary is loaded to this address. */
+#if IOS36
 #define BIN_PATCH_ADDR 0x202080e0
-
-/** Start of ELF area which is extneded. */
 #define EXTENDED_AREA_START 0x20200000
 #define BSS_START 0x2020a000
 #define BSS_SIZE  0x0002c000
+#elif IOS38
+#define BIN_PATCH_ADDR 0x20208200
+#define EXTENDED_AREA_START 0x20208000
+#define BSS_START 0x20209000
+#define BSS_SIZE  0x0002c000
+#else
+	#ifdef ADD_DIP_PLUGIN
+	
+		#error "Hey! i need  IOS36 or IOS38 defined!"
+	
+	#else
+	//  fake data to compile the code
+	#define BIN_PATCH_ADDR 0x202080e0
+	#define EXTENDED_AREA_START 0x20200000
+	#define BSS_START 0x2020a000
+	#define BSS_SIZE  0x0002c000
+
+	#endif
+#endif
+/** Start of ELF area which is extneded. */
+
 
 /** Header for Wii ARM binaries. */
 typedef struct {
@@ -91,7 +116,7 @@ static int copy_sections(uint8_t *buffer, uint8_t *out)
 			dst = out + outPos;
 			if (program_header->vaddr == EXTENDED_AREA_START) {
 				uint32_t origFileSize;
-
+                printf("Extended Area finded!!!!\n");
 				origFileSize = program_header->filesz;
 				program_header->filesz = program_header->memsz = BIN_PATCH_ADDR - EXTENDED_AREA_START + dip_plugin_bin_size;
 				memset(dst, 0, program_header->filesz);
@@ -100,8 +125,9 @@ static int copy_sections(uint8_t *buffer, uint8_t *out)
 				}
 			}
 			if (program_header->vaddr == BSS_START) {
+				 printf("BSS Start finded!!!!\n");
                           //debug_printf("Extending BSS.\n");
-				program_header->memsz = BSS_SIZE;
+				program_header->memsz += 0x1000; //BSS_SIZE;
 			}
                         /*debug_printf("VAddr: 0x%08x PAddr: 0x%08x Offset 0x%08x File Size 0x%08x Mem Size 0x%08x\n",
 				program_header->vaddr,
@@ -201,7 +227,8 @@ int add_dip_plugin(uint8_t **buffer)
 		debug_printf("Out of memory\n");
 		return -33;
 	}
-
+   
+	
 	/* Set default to 0. */
 	memset(outElf, 0, content_size);
 	debug_printf("\n");
@@ -209,8 +236,12 @@ int add_dip_plugin(uint8_t **buffer)
 		debug_printf("Failed to patch ELF.\n");
 		return -39;
 	}
-
+  
+	
 	*buffer = outElf;
 	free(inElf);
 	return outElfSize;
 }
+
+// XXXXXXXXXXXXXXXXXXXX
+#endif

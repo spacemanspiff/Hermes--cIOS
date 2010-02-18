@@ -163,17 +163,24 @@ void dump_qh(struct ehci_qh	*qh)
  * before driver shutdown. But it also seems to be caused by bugs in cardbus
  * bridge shutdown:  shutting down the bridge before the devices using it.
  */
-static int handshake (void __iomem *ptr,
+int unplug_device=0;
+
+
+static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		      u32 mask, u32 done, int usec)
 {
-	u32	result;
+	u32	result,status;
+
+
 	do {
+		status = ehci_readl( pstatus);
 		result = ehci_readl( ptr);
-		if (result == ~(u32)0)		/* card removed */
-		{
+		if ((result == ~(u32)0) || (PORT_OWNER&status) || !(PORT_CONNECT&status))		/* card removed */
+		{unplug_device=1;
 			return -ENODEV;
 		}
 		result &= mask;
+
 		if (result == done)
                   {
 #ifdef DEBUG
@@ -186,8 +193,9 @@ static int handshake (void __iomem *ptr,
 #endif
                           return 0;
                   }
-		udelay (1);
-		usec--;
+		udelay (100); /* Hermes:  100 microseconds is a god time to response and better for multithread (i think).
+						the new timer uses syscalls and queues to release the thread focus */
+		usec-=100;
 	} while (usec > 0);
 #ifdef DEBUG
         verbose = 1;
@@ -197,6 +205,13 @@ static int handshake (void __iomem *ptr,
         //dump_qh(ehci->async);
         //dump_qh(ehci->asyncqh);
         //BUG();
+	
+	unplug_device=1;
+	return -ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
+                    ENODEV return without retries and unplug_device can works without interferences.
+					i think is no a good idea too much retries when is possible the device needs one drastic action
+					*/
+	
 	return -ETIMEDOUT;
 }
 
@@ -221,12 +236,14 @@ static int ehci_init(void)
 	ehci->async->hw_alt_next = EHCI_LIST_END();//QTD_NEXT( ehci->async->dummy->qtd_dma);
         ehci->ctrl_buffer =  USB_Alloc(sizeof(usbctrlrequest));
 	ehci->command = 0;
-	ehci_writel( 0x00800002, &ehci->regs->command); 
+
+	ehci_writel( 0x008000002, &ehci->regs->command); 
 	ehci_writel( ehci->periodic_dma, &ehci->regs->frame_list); 
 	ehci_writel( ehci->async->qh_dma, &ehci->regs->async_next); 
 	ehci_writel( 0x00010009, &ehci->regs->command);
 	ehci_writel( 1, &ehci->regs->configured_flag);
 	ehci_writel( 0x00010029, &ehci->regs->command);
+
 
         return 0;
 }
@@ -535,7 +552,7 @@ u32 usb_timeout=2000*1000;
         ehci->async->hw_next = QH_NEXT(qh->qh_dma);
         ehci_dma_map_bidir(ehci->async,sizeof(struct ehci_qh));
 
-        retval = handshake(&ehci->regs->status,STS_INT,STS_INT,usb_timeout);
+        retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->status,STS_INT,STS_INT,usb_timeout);
 		
         //print_hex_dump_bytes ("qh mem",0,(void*)qh,17*4);
         //retval = poll_transfer_end(1000*1000);
@@ -559,7 +576,7 @@ u32 usb_timeout=2000*1000;
 
         if(retval>=0)
         // wait hc really stopped
-                retval = handshake(&ehci->regs->async_next,~0,ehci->async->qh_dma,20*1000);
+                retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->async_next,~0,ehci->async->qh_dma,20*1000);
         //release memory, and actualise urb->actual_length
         qh_end_transfer();
 
@@ -650,10 +667,10 @@ int ehci_reset_port(int port)
         msleep(100);
         ehci_writel( 0x1903,status_reg);
         //ehci_writel( PORT_OWNER|PORT_POWER|PORT_RESET,status_reg);
-        msleep(50);// wait 50ms for the reset sequence
+        msleep(500);// wait 50ms for the reset sequence
         ehci_writel( 0x1001,status_reg);
         //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
-        retval = handshake( status_reg,
+        retval = handshake(status_reg, status_reg,
                            PORT_RESET, 0, 750);
         if (retval != 0) {
                 ehci_dbg ( "port %d reset error %d\n",
@@ -661,7 +678,7 @@ int ehci_reset_port(int port)
                 return retval;
         }
         ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
-        msleep(50);
+        msleep(1000);
         // now the device has the default device id
         retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
@@ -683,6 +700,19 @@ int ehci_reset_port(int port)
         ehci_dbg ( "device %d: %X %X...\n", dev->id,le16_to_cpu(dev->desc.idVendor),le16_to_cpu(dev->desc.idProduct));
         return retval;
 }
+
+int ehci_reset_port2(int port)
+{
+u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+int ret=ehci_reset_port(port);
+if(ret==-ENODEV)
+	{
+    msleep(2000); // power off 2 second 
+	ehci_writel( 0x1001 ,status_reg); // power on
+	}
+return ret;
+}
+        
 int ehci_reset_device(struct ehci_device *dev)
 {
         return ehci_reset_port(dev->port);
@@ -706,7 +736,7 @@ int ehci_release_ports(void)
 {
         int i;
         u32 __iomem	*status_reg = &ehci->regs->port_status[2];
-        while(ehci_readl(&ehci->regs->port_status[2]) == 0x1000);// wait port 2 to init
+        while(ehci_readl(&ehci->regs->port_status[2]) == 0x1000) udelay(100);// wait port 2 to init
         msleep(1);// wait another msec..
         for(i = 0;i<ehci->num_port; i++){
           status_reg = &ehci->regs->port_status[i];

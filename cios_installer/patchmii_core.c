@@ -3,6 +3,7 @@
 
     Copyright (C) 2008 bushing / hackmii.com
     Copyright (C) 2008 WiiGator
+	Copyright (C) 2009 Hermes
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -43,18 +44,31 @@
 
 #include "debug_printf.h"
 
-
+/*
+NOTE: i don´t necessary
 #ifdef ADD_DIP_PLUGIN
 #include "add_dip_plugin.h"
 #include "patch_handle_di_cmd_raw.h"
 #endif
+*/
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 
 // These parameters will download IOS31, modify it, and install it as IOS222
+
+#if IOS36
 #define INPUT_TITLEID_H 1
 #define INPUT_TITLEID_L 36
 #define INPUT_VERSION 1042
+
+#elif IOS38
+#define INPUT_TITLEID_H 1
+#define INPUT_TITLEID_L 38
+#define INPUT_VERSION 3610
+#else
+#error "Hey! i need  IOS36 or IOS38 defined!"
+#endif
+
 #define OUTPUT_TITLEID_H 1
 #ifdef ADD_DIP_PLUGIN
 #ifdef DEBUG
@@ -72,6 +86,17 @@
 
 #define OUTPUT_VERSION 1
 
+#if 0
+// to get modules
+#define SAVE_DECRYPTED 1
+#undef INPUT_TITLEID_H
+#undef INPUT_TITLEID_L
+#undef INPUT_VERSION
+#define INPUT_TITLEID_H 1
+#define INPUT_TITLEID_L 60
+#define INPUT_VERSION 6174
+#endif
+
 #define ALIGN(a,b) ((((a)+(b)-1)/(b))*(b))
 #define round_up(x,n) (-(-(x) & -(n)))
 
@@ -79,8 +104,76 @@ int http_status = 0;
 int useSd = 1;
 int tmd_dirty = 0, tik_dirty = 0;
 
+
+
+#ifdef IOS36
+u32 DIP_patch1_pos=0x6800;
+u32 DIP_DVD_enable_orig_pos1=0x964;
+u32 DIP_DVD_enable_orig_pos2=0x9F0;
+
+u32 DIP_handle_di_cmd=0x112c;
+
+unsigned char patch_handle_di_cmd[12] = {
+	0x4B, 0x01, 0x68, 0x1B, 0x47, 0x18, 0x00, 0x00,/*addr to get handle_di_cmd*/ 0x20, 0x20, 0x90, 0x40 
+};
+
+u32 DIP_handle_di_cmd_reentry=0x8248;
+
+// handle_di_cmd_reentry= 0x20209030 (default)
+u8 handle_di_cmd_reentry[24] = {
+	0x20, 0x20, 0x90, 0x44+1,
+	0xB5, 0xF0, 0x46, 0x5F, 0x46, 0x56, 0x46, 0x4D, 0x46, 0x44, 0xB4, 0xF0, 0x4B, 0x00, 0x47, 0x18, 
+	/* handle_di_cmd_reentry */ 0x20, 0x20, 0x10, 0x10+1 // (Thumb)
+};
+
+
+// patch sub_201000CC (ES_ioctvl)
+#ifdef ADD_ES_PLUGIN
+
+u32 ES_ioctvl_patch_pos=0x12ab0;
+
+u8 ES_patch_ioctvl[8] = {
+	0x49, 0x00, 0x47, 0x08, /* addr in mload.elf */ 0x13, 0x8c, 0x00, 0x10+1 // (Thumb)
+};
+
+	//138C0010
+#endif
+
+#endif
+
+#ifdef IOS38
+u32 DIP_patch1_pos=0x6494;
+u32 DIP_DVD_enable_orig_pos1=0x68c;
+u32 DIP_DVD_enable_orig_pos2= 0x718;
+u32 DIP_handle_di_cmd= 0xe54;
+
+unsigned char patch_handle_di_cmd[12] = {
+	0x4B, 0x01, 0x68, 0x1B, 0x47, 0x18, 0x00, 0x00,/*addr to get handle_di_cmd*/ 0x20, 0x20, 0x80, 0x30
+};
+
+u32 DIP_handle_di_cmd_reentry=0x7ecc;
+
+// handle_di_cmd_reentry= 0x20208030 (default)
+u8 handle_di_cmd_reentry[24] = {
+	0x20, 0x20, 0x80, 0x34+1,
+	0xB5, 0xF0, 0x46, 0x5F, 0x46, 0x56, 0x46, 0x4D, 0x46, 0x44, 0xB4, 0xF0, 0x4B, 0x00, 0x47, 0x18, 
+	/* handle_di_cmd_reentry */  0x20, 0x20, 0x0D, 0x38+1 // (Thumb)
+};
+
+// patch sub_201000CC (ES_ioctvl)
+#ifdef ADD_ES_PLUGIN
+
+u32 ES_ioctvl_patch_pos=0x12ab0 ;// 0x12b3c; NOTE: remember you that i am using ES from IOS36...
+u8 ES_patch_ioctvl[8] = {
+	0x49, 0x00, 0x47, 0x08,  /* addr in mload.elf */ 0x13, 0x8c, 0x00, 0x10+1 // (Thumb)
+};
+#endif
+
+#endif
+
 u8 DIP_orig1[] =  { 0x00, 0x01, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 u8 DIP_patch1[] = { 0x7e, 0xd4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+
 u8 ES_orig1[] =  { 0x99, 0x02, 0x22, 0x14, 0x4b, 0x0f, 0x47, 0x98, 0x28, 0x00, 0xd0, 0x00, 0x20, 0x07, 0x23, 0xa2 };
 u8 ES_patch1[] = { 0x99, 0x02, 0x22, 0x14, 0x4b, 0x0f, 0x47, 0x98, 0x28, 0x00, 0xe0, 0x00, 0x20, 0x07, 0x23, 0xa2 };
 u8 ES_orig2[] =  { 0x88, 0x13, 0x42, 0x99, 0xd2, 0x01, 0x4e, 0x56, 0xe0, 0x87, 0x21, 0xc6, 0x00, 0x49, 0x18, 0x6b };
@@ -89,6 +182,24 @@ u8 ES_orig3[] =  { 0x42, 0xa3, 0xd1, 0x2a, 0x1c, 0x39, 0x1c, 0x30, 0x46, 0x42, 0
 u8 ES_patch3[] = { 0x42, 0xa3, 0x46, 0xc0, 0x1c, 0x39, 0x1c, 0x30, 0x46, 0x42, 0xf0, 0x03, 0xf8, 0x45, 0x1e, 0x05 };
 u8 ES_orig4[] =  { 0x42, 0x99, 0xd8, 0x00, 0x4a, 0x04, 0x1c, 0x10, 0xbc, 0x10, 0xbc, 0x02, 0x47, 0x08, 0x00, 0x00 };
 u8 ES_patch4[] = { 0x42, 0x99, 0xe0, 0x00, 0x4a, 0x04, 0x1c, 0x10, 0xbc, 0x10, 0xbc, 0x02, 0x47, 0x08, 0x00, 0x00 };
+
+u32 ES_patch1_pos=0x5820;
+u32 ES_patch2_pos=0x150f0;
+u32 ES_patch3_pos=0x17940;
+u32 ES_patch4_pos=0x19fd0;
+
+u8 ES_ioctlv_orig[12] = {0xB5, 0x70, 0xB0, 0x88, 0x68, 0x85, 0x1C, 0x01, 0x31, 0x0C, 0x22, 0xC0};
+
+/*
+IOS 38
+u32 ES_patch1_pos=NO GOOD;
+u32 ES_patch2_pos=0x1518c;
+u32 ES_patch3_pos=0x179dc;
+u32 ES_patch4_pos=0x1a06c;
+
+I use ES from IOS 36
+*/
+
 u8 DIP_DVD_enable_orig[] = { 0x20, 0x01 };
 u8 DIP_DVD_enable_patch[] = { 0x20, 0x00 };
 u8 DIP_handle_di_cmd_orig[] = { 0xb5, 0xf0, 0x46, 0x5f, 0x46, 0x56, 0x46, 0x4d, 0x46, 0x44, 0xb4, 0xf0 };
@@ -176,6 +287,7 @@ int get_nus_object(u32 titleid1, u32 titleid2, u32 version, char *content, u8 **
   int retval;
   u32 http_status;
   static int netInit = 0;
+
 FILE *fd;
 	
   if (useSd) {
@@ -234,7 +346,7 @@ FILE *fd;
 	{int retry=10;
 	while(1)
 		{
-		  retval = http_request(buf, 1 << 31);
+		  retval = http_request(buf, (u32) (1 << 31));
 		  if (!retval) {
 			  retry--;
 			debug_printf("Error making http request\n");
@@ -246,17 +358,17 @@ FILE *fd;
 	}
   retval = http_get_result(&http_status, outbuf, outlen);
 	snprintf(buf, 128, "fat0:/%08x/%08x/v%d/%s", titleid1, titleid2, version, content);	
-	
+
+	if (useSd)
+	{
 	fd = fopen(buf, "wb");
 	if (fd) {
 			fwrite(*outbuf, *outlen, 1, fd);
 			fclose(fd);
 			}
+	}
 
   if (((int)*outbuf & 0xF0000000) == 0xF0000000) {
-
-    
-	
 
 	
 	return (int) *outbuf;
@@ -609,7 +721,7 @@ int main(int argc, char **argv) {
 	console_setup();
 	printf("This program is a modification of patchmii, and is unsupported and not condoned by the original authors of it.\n");
 	printf("The backup loader modification is solely the work of WiiGator.\n");
-	printf("This version includes optimizations made by Waninkoko\n");
+	printf("This version includes optimizations made by Waninkoko and Hermes\n");
         printf("USB2/wbfs support by Kwiirk\n");
 	printf("\n");
 	printf("cIOS installer v%d by WiiGator.\n", OUTPUT_VERSION);
@@ -624,7 +736,7 @@ int main(int argc, char **argv) {
 	{
 		WPAD_ScanPads();
 		pressed = WPAD_ButtonsDown(0);
-		
+
 		if(pressed) {
 			if (pressed == WPAD_BUTTON_A) {
 				break;
@@ -639,6 +751,7 @@ int main(int argc, char **argv) {
 	if (fatInitDefault()) {
 		chdir ("fat0:/");
 	}
+	else useSd=0;
 
 	rv = patchmii();
 
@@ -657,8 +770,18 @@ int apply_patch(u8 *data, u32 offset, u8 *orig, u32 orig_size, u8 *patch, u32 pa
 	}
 }
 
-static int patchmii(void)
+#define INPUT2_TITLEID_H 1
+#define INPUT2_TITLEID_L 36
+#define INPUT2_VERSION 1042
+
+u8 *ES_decrypted_buf=NULL;
+u32 ES_content_size=0;
+
+// to get ES title from IOS 36
+static int patchmii2(void)
 {
+
+
 // ******* WARNING *******
 // Obviously, if you're reading this, you're obviously capable of disabling the
 // following checks.  If you put any of the following titles into an unusuable state, 
@@ -682,6 +805,198 @@ static int patchmii(void)
 
 	printvers();
   
+	int retval;
+
+
+  	signed_blob *s_tmd = NULL, *s_tik = NULL, *s_certs = NULL;
+
+  	u8 *temp_tmdbuf = NULL, *temp_tikbuf = NULL;
+
+  	static u8 tmdbuf[MAX_SIGNED_TMD_SIZE] ATTRIBUTE_ALIGN(0x20);
+  	static u8 tikbuf[STD_SIGNED_TIK_SIZE] ATTRIBUTE_ALIGN(0x20);
+  
+  	u32 tmdsize;
+
+	static char tmdname[32];
+
+	if (useSd) 
+		{
+		snprintf(buf, 128, "fat0:/%08x", INPUT2_TITLEID_H);
+		mkdir(buf,S_IREAD | S_IWRITE);
+		snprintf(buf, 128, "fat0:/%08x/%08x", INPUT2_TITLEID_H, INPUT2_TITLEID_L);
+		mkdir(buf,S_IREAD | S_IWRITE);
+		snprintf(buf, 128, "fat0:/%08x/%08x/v%d", INPUT2_TITLEID_H, INPUT2_TITLEID_L, INPUT2_VERSION);
+		mkdir(buf,S_IREAD | S_IWRITE);
+		}
+
+  	debug_printf("Downloading IOS%d metadata: ..", INPUT2_TITLEID_L);
+	snprintf(tmdname, sizeof(tmdname),"tmd.%d", INPUT2_VERSION);
+  	retval = get_nus_object(INPUT2_TITLEID_H, INPUT2_TITLEID_L, INPUT2_VERSION, tmdname, &temp_tmdbuf, &tmdsize);
+  	if (retval<0) {
+		debug_printf("get_nus_object(tmd) returned %d, tmdsize = %u\n", retval, tmdsize);
+		return(1);
+	}
+	if (temp_tmdbuf == NULL) {
+		debug_printf("Failed to allocate temp buffer for encrypted content, size was %u\n", tmdsize);
+		return(1);
+	}
+  	memcpy(tmdbuf, temp_tmdbuf, MIN(tmdsize, sizeof(tmdbuf)));
+	free(temp_tmdbuf);
+
+	s_tmd = (signed_blob *)tmdbuf;
+	if(!IS_VALID_SIGNATURE(s_tmd)) {
+    	debug_printf("Bad TMD signature!\n");
+		return(1);
+  	}
+
+  	debug_printf("\b ..tmd..");
+
+	u32 ticketsize;
+	retval = get_nus_object(INPUT2_TITLEID_H, INPUT2_TITLEID_L, INPUT2_VERSION,
+						  "cetk", &temp_tikbuf, &ticketsize);
+						
+	if (retval < 0) debug_printf("get_nus_object(cetk) returned %d, ticketsize = %u\n", retval, ticketsize);
+	memcpy(tikbuf, temp_tikbuf, MIN(ticketsize, sizeof(tikbuf)));
+  
+	s_tik = (signed_blob *)tikbuf;
+	if(!IS_VALID_SIGNATURE(s_tik)) {
+    	debug_printf("Bad tik signature!\n");
+		return(1);
+  	}
+  
+  	free(temp_tikbuf);
+
+	s_certs = (signed_blob *)haxx_certs;
+	if(!IS_VALID_SIGNATURE(s_certs)) {
+    	debug_printf("Bad cert signature!\n");
+		return(1);
+  	}
+
+	debug_printf("\b ..ticket..");
+
+	u8 key[16];
+	get_title_key(s_tik, key);
+	aes_set_key(key);
+
+	tmd *p_tmd;
+	tmd_content *p_cr;
+	p_tmd = (tmd*)SIGNATURE_PAYLOAD(s_tmd);
+	p_cr = TMD_CONTENTS(p_tmd);
+
+	if (p_tmd->title_version != INPUT2_VERSION) {
+		printf("TMD Version wrong %d != %d.\n", p_tmd->title_version, INPUT2_VERSION);
+		return 1;
+	}
+	/* Patch version number. */
+	p_tmd->title_version = OUTPUT_VERSION;
+        
+	print_tmd_summary(p_tmd);
+
+	debug_printf("Downloading contents: \n");
+	static char cidstr[32];
+	u16 i;
+	for (i=0xe;i<0xf;i++) {
+	   debug_printf("Downloading part %d/%d (%uK): ", i+1, 
+					p_tmd->num_contents, p_cr[i].size / 1024);
+	   sprintf(cidstr, "%08x", p_cr[i].cid);
+   
+	   u8 *content_buf, *decrypted_buf;
+	   u32 content_size;
+
+	   retval = get_nus_object(INPUT2_TITLEID_H, INPUT2_TITLEID_L, INPUT2_VERSION, cidstr, &content_buf, &content_size);
+	   if (retval < 0) {
+			debug_printf("get_nus_object(%s) failed with error %d, content size = %u\n", 
+					cidstr, retval, content_size);
+			return(1);
+		}
+
+		if (content_buf == NULL) {
+			debug_printf("error allocating content buffer, size was %u\n", content_size);
+			return(1);
+		}
+
+		if (content_size % 16) {
+			debug_printf("ERROR: downloaded content[%hu] size %u is not a multiple of 16\n",
+					i, content_size);
+			free(content_buf);
+			return(1);
+		}
+
+   		if (content_size < p_cr[i].size) {
+			debug_printf("ERROR: only downloaded %u / %llu bytes\n", content_size, p_cr[i].size);
+			free(content_buf);
+			return(1);
+   		} 
+
+		decrypted_buf = malloc(content_size);
+		if (!decrypted_buf) {
+			debug_printf("ERROR: failed to allocate decrypted_buf (%u bytes)\n", content_size);
+			free(content_buf);
+			return(1);
+		}
+
+		decrypt_buffer(i, content_buf, decrypted_buf, content_size);
+
+		sha1 hash;
+		SHA1(decrypted_buf, p_cr[i].size, hash);
+
+		if (!memcmp(p_cr[i].hash, hash, sizeof hash)) {
+                  debug_printf("\b hash OK.\n");
+			//display_ios_tags(decrypted_buf, content_size);
+
+			
+		
+			}
+
+	ES_decrypted_buf=decrypted_buf;
+    ES_content_size=content_size;
+
+	   	free(content_buf);
+	}
+
+  	debug_printf("Done \n");
+
+	return(0);
+}
+
+static int patchmii(void)
+{
+#if SAVE_DECRYPTED
+char name[256];
+FILE *fd;
+#endif
+// ******* WARNING *******
+// Obviously, if you're reading this, you're obviously capable of disabling the
+// following checks.  If you put any of the following titles into an unusuable state, 
+// your Wii will fail to boot:
+//
+// 1-1 (BOOT2), 1-2 (System Menu), 1-30 (IOS30, currently specified by 1-2's TMD)
+// Corrupting other titles (for example, BC or the banners of installed channels)
+// may also cause difficulty booting.  Please do not remove these safety checks
+// unless you have performed extensive testing and are willing to take on the risk
+// of bricking the systems of people to whom you give this code.  -bushing
+
+	if ((OUTPUT_TITLEID_H == 1) && (OUTPUT_TITLEID_L == 2)) {
+		printf("Sorry, I won't modify the system menu; too dangerous. :(\n");
+		while(1);
+  	}
+
+	if ((OUTPUT_TITLEID_H == 1) && (OUTPUT_TITLEID_L == 30)) {
+		printf("Sorry, I won't modify IOS30; too dangerous. :(\n");
+		while(1);
+  	}
+
+
+#ifdef IOS38
+// to get dev/es from IOS36 (Yes, to use with IOS38)
+if(patchmii2() !=0 || ES_decrypted_buf==NULL)
+	{
+	perror("Failed to adquire IOS36 file ");
+		return(1);
+	}
+#endif
+	printvers();
+ 
 	int retval;
 
 	if (ISFS_Initialize() || create_temp_dir()) {
@@ -824,7 +1139,17 @@ static int patchmii(void)
 		if (!memcmp(p_cr[i].hash, hash, sizeof hash)) {
                   debug_printf("\b hash OK.\n");
 			//display_ios_tags(decrypted_buf, content_size);
-			int rv;
+		
+
+#if SAVE_DECRYPTED
+
+sprintf(name,"fat0:/modulo_%s.elf",cidstr);
+				fd = fopen(name, "wb");
+				if (fd) {
+				fwrite(decrypted_buf, content_size, 1, fd);
+				fclose(fd);
+				}
+#else			
 
 			update_tmd = 0;
 			switch (p_cr[i].cid) {
@@ -832,56 +1157,94 @@ static int patchmii(void)
 				break;
 
 			case 0x00000001: /* DIP */
-				if (!apply_patch(decrypted_buf, 0x6800, DIP_orig1, sizeof(DIP_orig1), DIP_patch1, sizeof(DIP_patch1))) {
+#if defined(IOS36) || defined(IOS38)
+printf("DIP Patch\n");
+
+				if (!apply_patch(decrypted_buf, DIP_patch1_pos, DIP_orig1, sizeof(DIP_orig1), DIP_patch1, sizeof(DIP_patch1))) {
 					printf("DIP patch 1 failed.\n");
 					return 0;
 				}
-
-				if (!apply_patch(decrypted_buf, 0x964, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
+			
+				if (!apply_patch(decrypted_buf, DIP_DVD_enable_orig_pos1, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
 					printf("DIP DVD enable patch 1 failed.\n");
 					return 0;
 				}
-				if (!apply_patch(decrypted_buf, 0x9F0, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
+
+				if (!apply_patch(decrypted_buf, DIP_DVD_enable_orig_pos2, DIP_DVD_enable_orig, sizeof(DIP_DVD_enable_orig), DIP_DVD_enable_patch, sizeof(DIP_DVD_enable_patch))) {
 					printf("DIP DVD enable patch 2 failed.\n");
 					return 0;
 				}
 
+
 #ifdef ADD_DIP_PLUGIN
 				/* Replace function handle DI command. */
-				if (!apply_patch(decrypted_buf, 0x112c, DIP_handle_di_cmd_orig, sizeof(DIP_handle_di_cmd_orig), patch_handle_di_cmd_raw, patch_handle_di_cmd_raw_size)) {
+				
+				if (!apply_patch(decrypted_buf, DIP_handle_di_cmd, DIP_handle_di_cmd_orig, sizeof(DIP_handle_di_cmd_orig),
+					patch_handle_di_cmd,sizeof (patch_handle_di_cmd))) {
 					printf("DIP A8 patch failed.\n");
 					return 0;
 				}
-				rv = add_dip_plugin(&decrypted_buf);
+
+				#if defined(IOS36) || defined(IOS38)
+		
+				// apply patch directly
+				memcpy(&decrypted_buf[DIP_handle_di_cmd_reentry], handle_di_cmd_reentry,sizeof(handle_di_cmd_reentry));
+			
+
+				#else
+				int rv = add_dip_plugin(&decrypted_buf);
 				if (rv <= 0) {
 					debug_printf("DIP additional patch failed! (rv = %d)\n", rv);
 					return(1);
 				}
 				p_cr[i].size = rv;
+				#endif
 				content_size = round_up(p_cr[i].size, 0x40);
+				
 #endif
 				debug_printf("Patched DIP.\n");
 				update_tmd = 1;
+#endif
 				break;
-
-			case 0x0000000e: /* FFS, ES, IOSP */
-				if (!apply_patch(decrypted_buf, 0x5820, ES_orig1, sizeof(ES_orig1), ES_patch1, sizeof(ES_patch1))) {
+        
+		#ifdef IOS38
+			case 0x00000011: /* FFS, ES, IOSP */
+	
+				printf("Patch ES\n");
+                memcpy(decrypted_buf, ES_decrypted_buf, ES_content_size);
+				free(ES_decrypted_buf);
+		#endif
+		#ifdef IOS36
+			case  0x0000000e: /* FFS, ES, IOSP */
+		#endif
+				if (!apply_patch(decrypted_buf, ES_patch1_pos, ES_orig1, sizeof(ES_orig1), ES_patch1, sizeof(ES_patch1))) {
 					printf("IOS patch 1 failed.\n");
 					return 0;
 				}
-				if (!apply_patch(decrypted_buf, 0x150f0, ES_orig2, sizeof(ES_orig2), ES_patch2, sizeof(ES_patch2))) {
+				if (!apply_patch(decrypted_buf, ES_patch2_pos, ES_orig2, sizeof(ES_orig2), ES_patch2, sizeof(ES_patch2))) {
 					printf("IOS patch 2 failed.\n");
 					return 0;
 				}
-				if (!apply_patch(decrypted_buf, 0x17940, ES_orig3, sizeof(ES_orig3), ES_patch3, sizeof(ES_patch3))) {
+				if (!apply_patch(decrypted_buf, ES_patch3_pos, ES_orig3, sizeof(ES_orig3), ES_patch3, sizeof(ES_patch3))) {
 					printf("IOS patch 3 failed.\n");
 					return 0;
 				}
-				if (!apply_patch(decrypted_buf, 0x19fd0, ES_orig4, sizeof(ES_orig4), ES_patch4, sizeof(ES_patch4))) {
+				if (!apply_patch(decrypted_buf, ES_patch4_pos, ES_orig4, sizeof(ES_orig4), ES_patch4, sizeof(ES_patch4))) {
 					printf("IOS patch 4 failed.\n");
 					return 0;
 				}
+				#ifdef  ADD_ES_PLUGIN
+
+				if (!apply_patch(decrypted_buf, ES_ioctvl_patch_pos, ES_ioctlv_orig, sizeof(ES_ioctlv_orig), ES_patch_ioctvl, sizeof(ES_patch_ioctvl))) {
+					printf("IOS patch Ioctlv failed.\n");
+					return 0;
+				}
+				#endif
+				
+	
+
 				update_tmd = 1;
+
 				break;
 
 			default:
@@ -902,14 +1265,18 @@ static int patchmii(void)
 				debug_printf("save_nus_object(%x) returned error %d\n", p_cr[i].cid, retval);
 				return(1);
 			}
+#endif   // save_decrypt
+
 		} else {
 			debug_printf("hash BAD\n");
 			return(1);
 		}
-     
+   
 		free(decrypted_buf);
 	   	free(content_buf);
 	}
+
+#ifndef SAVE_DECRYPTED
         if(add_custom_modules(p_tmd))
                 tmd_dirty=1;
 
@@ -941,7 +1308,7 @@ static int patchmii(void)
   	}
 
   	retval = install(s_tmd, s_certs, haxx_certs_size);
-		   
+#endif 
   	if (retval) {
     	debug_printf("install returned %d\n", retval);
     	return(1);

@@ -42,7 +42,9 @@ void BUG(void)
 }
 #define BUG_ON(a) if(a)BUG()
 
-
+void udelay(int usec);
+void msleep(int msec);
+/*
 void udelay(int usec)
 {
         u32 tmr,temp;
@@ -66,6 +68,7 @@ void msleep(int msec)//@todo not really sleeping..
 		
 
 }
+*/
 extern u32 __exe_start_virt__;
 extern u32 __ram_start_virt__;
 
@@ -102,30 +105,33 @@ struct ehci_hcd *ehci = &_ehci;
 #include "ehci.c"
 
 int usb_os_init(void);
+
+#define MLOAD_GET_EHCI_DATA		0x4D4C44A0
+
 int tiny_ehci_init(void)
 {
-        int retval;
+
         ehci = &_ehci;
 
 		
-        //memset(ehci,0,sizeof(*ehci));
         if(usb_os_init()<0)
-                return 0;
-	ehci->caps = (void*)0x0D040000;
-	ehci->regs = (void*)(0x0D040000 +
-                             HC_LENGTH(ehci_readl(&ehci->caps->hc_capbase)));
-        ehci->num_port = 4;
-	/* cache this readonly data; minimize chip reads */
-	ehci->hcs_params = ehci_readl(&ehci->caps->hcs_params);
+                return -1;
+	
+	if(1) 
+	{ // From Hermes: ohci mem is readed from dev/mload: (ehci init is from here)
+	int fd;
+		fd = os_open("/dev/mload",1);
+		if(fd<0) return -1;
+		ehci= (struct ehci_hcd *) os_ioctlv(fd, MLOAD_GET_EHCI_DATA ,0,0,0);
+		os_close(fd);
 
-	/* data structure init */
-	retval = ehci_init();
-	if (retval)
-		return retval; 
+	//////////////////////////////////////////////////////////////////////////////////////////////
+	/* WARNING: This ignore the port 2 (external) and 3,4 (internals) for USB 2.0 operations    */
 
-        ehci_release_ports(); //quickly release none usb2 port
+	ehci->num_port=1;
 
-		
+    /////////////////////////////////////////////////////////////////////////////////////////////
+	}
 
 	return 0;
 }

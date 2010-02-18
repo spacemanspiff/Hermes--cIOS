@@ -17,14 +17,12 @@
 #include "http.h"
 #include "haxx_certs.h"
 #include <fat.h>
-#include "ehc_elf.h"
-#include "haxx_elf.h"
+//#include "ehc_elf.h"
+#include "mload_elf.h"
 
-#define ADD_EHC
-
-
-//#define ADD_HAXX // active this if you want to play with starlet without installing 50 times an hour
-
+//#define ADD_EHC
+#define ADD_HAXX // active this if you want to play with starlet without installing 50 times an hour
+//#define REMOVE_OH0
 u32 save_nus_object (u16 index, u8 *buf, u32 size);
 
 /* add module inside the tmd
@@ -90,9 +88,15 @@ int add_custom_modules(tmd *p_tmd)
         tmd_dirty = 1;
 #endif
 #ifdef ADD_HAXX
-// add haxx module add the end of the tmd
+/*add haxx module. We need it installed before OH0 and OH1, because IOS loads it in the order of the tmd.
+   for some reason, we cant shift all indexes or the IOS_Reload will crashed without saying anything.
+*/
         debug_printf("adding haxx module\n");
-        tmd_add_module(p_tmd,haxx_elf,haxx_elf_size);
+        tmd_add_module(p_tmd,mload_elf,mload_elf_size);
+		tmp = p_cr[3]; // inverse ehc and oh0 place in tmd
+        p_cr[3] = p_cr[p_tmd->num_contents-1];
+        p_cr[p_tmd->num_contents-1] = tmp;
+   
         tmd_dirty = 1;
 #endif
         return tmd_dirty;

@@ -126,7 +126,7 @@ s32 tcp_connect (char *host, const u16 port) {
 	return s;
 }
 
-char * tcp_readln (const s32 s, const u16 max_length, const u64 start_time, const u16 timeout) {
+char * tcp_readln (const s32 s, const u16 max_length, const u64 start_time, const u32 timeout) {
 	char *buf;
 	u16 c;
 	s32 res;
@@ -327,7 +327,7 @@ bool http_request (const char *url, const u32 max_size) {
 	linecount = 0;
 
 	for (linecount=0; linecount < 32; linecount++) {
-	  char *line = tcp_readln (s, 0xff, gettime(), HTTP_TIMEOUT);
+	  char *line =  tcp_readln (s, 0xff, gettime(), HTTP_TIMEOUT);
 //		debug_printf("tcp_readln returned %p (%s)\n", line, line?line:"(null)");
 		if (!line) {
 			http_status = 404;

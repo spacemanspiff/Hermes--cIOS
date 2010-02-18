@@ -5,12 +5,14 @@
 #include "ehci.h"
 static  int heap;
 
-extern u8 heap_space2[0xb000];
+void udelay(int usec);
+void msleep(int msec);
+
+extern u8 heap_space2[0x8000];
 
 int usb_os_init(void)
 {
-        //heap = 4;//*((unsigned int*)0x138a71f8);//os_heap_create((void*)0x138ab1f8, 0x2000);
-        heap = os_heap_create((u8 *)((((u32) heap_space2+4095) & ~4095)+0x2000)/*(void*)0x13892000*/, 0x8000);
+        heap = os_heap_create(heap_space2, 0x8000);
 		//heap = os_heap_create((void*)0x13890000, 0x8000);
         if(heap<0)
         {
@@ -18,30 +20,8 @@ int usb_os_init(void)
         }
         return 0;
 }
-static u8* aligned_mem = 0;
-static u8* aligned_base = 0;
-/* @todo hum.. not that nice.. */
-void*ehci_maligned(int size,int alignement,int crossing)
-{
-        if (!aligned_mem )
-        {
-                aligned_mem=aligned_base =  (u8 *)((((u32) heap_space2+4095) & ~4095));//(void*)0x13890000;
-        }
-        u32 addr=(u32)aligned_mem;
-        alignement--;
-        addr += alignement;
-        addr &= ~alignement;
-        if (((addr +size-1)& ~(crossing-1)) != (addr&~(crossing-1)))
-                addr = (addr +size-1)&~(crossing-1);
-        aligned_mem = (void*)(addr + size);
-        if (aligned_mem>aligned_base + 0x2000) 
-        {
-                debug_printf("not enough aligned memory!\n");
-		while(1) msleep(1);
-        }
-        memset((void*)addr,0,size);
-        return (void*)addr;
-}
+
+
 dma_addr_t ehci_virt_to_dma(void *a)
 {
 
