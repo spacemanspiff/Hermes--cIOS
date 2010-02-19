@@ -216,6 +216,7 @@ static int handshake_interrupt(void __iomem *pstatus, void __iomem *ptr,
 }
 #endif 
 
+int handshake_mode=0;
 
 static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		      u32 mask, u32 done, int usec)
@@ -269,7 +270,9 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		
 		writel (g_status, &ehci->regs->status);
         readl (&ehci->regs->command);
-	
+
+	if(handshake_mode) return -ETIMEDOUT;
+
 	unplug_device=1;
 	return -ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
                     ENODEV return without retries and unplug_device can works without interferences.
