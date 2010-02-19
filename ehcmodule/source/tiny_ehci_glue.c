@@ -104,16 +104,17 @@ struct ehci_hcd *ehci = &_ehci;
 
 #include "ehci.c"
 
+
 int usb_os_init(void);
 
 #define MLOAD_GET_EHCI_DATA		0x4D4C44A0
+
 
 
 int tiny_ehci_init(void)
 {
 
         ehci = &_ehci;
-
 
 		
         if(usb_os_init()<0)

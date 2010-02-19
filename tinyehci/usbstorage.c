@@ -767,13 +767,18 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
    return true;
 
 }
+
+s32 try_status=0;
+
 // temp function before libfat is available */
 s32 USBStorage_Try_Device(struct ehci_device *fd)
 {
         int maxLun,j,retval;
 		int test_max_lun=1;
-       if(USBStorage_Open(&__usbfd, fd) < 0)
-           return -EINVAL;
+
+		try_status=-120;
+		if(USBStorage_Open(&__usbfd, fd) < 0)
+			return -EINVAL;
 	  
 	/*
        maxLun = USBStorage_GetMaxLUN(&__usbfd);
@@ -799,6 +804,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            if(retval == USBSTORAGE_ETIMEDOUT && test_max_lun==0)
            { 
                //USBStorage_Reset(&__usbfd);
+			   try_status=-121;
 			   __mounted = 0;
                USBStorage_Close(&__usbfd); 
 			   return -EINVAL;
@@ -830,9 +836,10 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            __mounted = 1;
            __lun = j;
 		   usb_timeout=1000*1000;
+		   try_status=0;
            return 0;
        }
-
+	   try_status=-122;
 	   __mounted = 0;
 	   USBStorage_Close(&__usbfd);
 	  
@@ -855,13 +862,16 @@ if(!ums_init_done) return;
 	unplug_device=0;
 }
 
+
 s32 USBStorage_Init(void)
 {
         int i,n;
         debug_printf("usbstorage init %d\n", ums_init_done);
         if(ums_init_done)
           return 0;
-        
+
+	 try_status=-1;      
+
         for(i = 0;i<ehci->num_port; i++){
                 struct ehci_device *dev = &ehci->devices[i];
                 if(dev->id != 0){
@@ -876,10 +886,22 @@ s32 USBStorage_Init(void)
 							ehci_msleep(1000);
 							}
                 }
+				else
+					{
+				    u32 status;
+
+					status = ehci_readl(&ehci->regs->port_status[0]);
+					if(status & 1)
+						{
+						ehci_reset_port2(0);
+						return -101;
+						}
+					else return -100;
+					}
         }
 
 	
-        return -1;
+        return try_status;
 }
 
 s32 USBStorage_Get_Capacity(u32*sector_size)
