@@ -33,7 +33,7 @@ static inline struct ehci_qtd * ehci_qtd_alloc(void)
 {
         struct ehci_qtd *qtd ;
         //debug_printf("ehci_qtd used=%x\n",ehci->qtd_used);
-        BUG_ON(ehci->qtd_used>=EHCI_MAX_QTD);
+        if(ehci->qtd_used>=EHCI_MAX_QTD) return NULL;
         qtd = ehci->qtds[ehci->qtd_used++];
         ehci_qtd_init(qtd);
         return qtd;

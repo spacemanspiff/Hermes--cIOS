@@ -170,116 +170,91 @@ int unplug_device=0;
 
 #define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
 
-#if 0
-void usleep_USB_Int(u32 time);
 
-static int handshake_interrupt(void __iomem *pstatus, void __iomem *ptr,
-		      u32 mask, u32 done, int usec)
-{
-	u32	result,status, g_status;
-
-
-	ehci_usleep (1000*1000/*usec*/);
-
-
-		status = ehci_readl( pstatus);
-		result = ehci_readl( ptr);
-		g_status=ehci_readl(&ehci->regs->status) & INTR_MASK ;
-		
-		if ((g_status == ~(u32)0)) return -ENODEV;
-		writel (g_status, &ehci->regs->status);
-        readl (&ehci->regs->command);
-
-		if ((PORT_OWNER&status) || !(PORT_CONNECT&status))		/* card removed */
-			{unplug_device=1;
-				return -ENODEV;
-			}
-		result &= mask;
-		
-		
-		if(g_status & (STS_FATAL | STS_ERR)) return -ETIMEDOUT;
-
-		if (result == done)
-                  {
-
-                  return 0;
-                  }
-	
-
-	unplug_device=1;
-	return -ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
-                    ENODEV return without retries and unplug_device can works without interferences.
-					i think is no a good idea too much retries when is possible the device needs one drastic action
-					*/
-	
-	//return -ETIMEDOUT;
-}
-#endif 
 
 int handshake_mode=0;
+
+#define get_timer()  (*(((volatile u32*)0x0D800010)))
 
 static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		      u32 mask, u32 done, int usec)
 {
-	u32	result,status, g_status;
+	u32	result,status, g_status,g_mstatus, ret=0;
 
+	u32 tmr,temp;
 
+    tmr = get_timer();
+	usec<<=1;
+    
 	do {
-		ehci_usleep (100); /* Hermes:  100 microseconds is a good time to response and better for multithread (i think).
+		ehci_usleep (10); /* Hermes:  100 microseconds is a good time to response and better for multithread (i think).
 						the new timer uses syscalls and queues to release the thread focus */
-		usec-=100;
+		//usec-=100;
 
 		status = ehci_readl( pstatus);
 		result = ehci_readl( ptr);
-		g_status=ehci_readl(&ehci->regs->status) & INTR_MASK;
+		g_status=ehci_readl(&ehci->regs->status);
+		g_mstatus=g_status & INTR_MASK;
 
-		if ((g_status == ~(u32)0))		/* card removed */
+		if ((g_status == ~(u32)0) || (PORT_OWNER&status) || (g_status & STS_FATAL))		/* card removed */
 			{
 			unplug_device=1;
 			return -ENODEV;
 			}
+		
 
-		if (/*(g_status == ~(u32)0) || */(PORT_OWNER&status) || !(PORT_CONNECT&status))		/* card removed */
-			{unplug_device=1;
-			writel (g_status, &ehci->regs->status);
-			readl (&ehci->regs->command);
-			
-			return -ENODEV;
+		if (/*(g_status == ~(u32)0) || */ !(PORT_CONNECT&status))		/* card removed */
+			{
+			unplug_device=1;
+			ret=-ENODEV;
+			goto handshake_exit;
 			}
 		result &= mask;
 		
 		
 		if(g_status & STS_ERR) 
 			{
-			writel (g_status, &ehci->regs->status);
-			readl (&ehci->regs->command);
+			if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ENODEV;}
+			goto handshake_exit;
 
-			return -ETIMEDOUT;
 			}
 
 		if (result == done)
                   {
-					writel (g_status, &ehci->regs->status);
-					readl (&ehci->regs->command);
-                    return 0;
+					ret=0;
+					goto handshake_exit;
                   }
-		
-	} while (usec > 0);
+	temp=get_timer()-tmr;	
+	} while (temp < usec/*usec > 0*/);
 
 
 		
-		writel (g_status, &ehci->regs->status);
-        readl (&ehci->regs->command);
+	if(handshake_mode) ret=-ETIMEDOUT;
+		else
+		{
+		unplug_device=1;
+		ret=-ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
+			            ENODEV return without retries and unplug_device can works without interferences.
+						i think is no a good idea too much retries when is possible the device needs one drastic action
+						*/
+		}
+handshake_exit:	
 
-	if(handshake_mode) return -ETIMEDOUT;
-
-	unplug_device=1;
-	return -ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
-                    ENODEV return without retries and unplug_device can works without interferences.
-					i think is no a good idea too much retries when is possible the device needs one drastic action
-					*/
-	
-	//return -ETIMEDOUT;
+	ehci_writel (g_mstatus, &ehci->regs->status);
+	/* complete the unlinking of some qh [4.15.2.3] */
+	u32 command=ehci_readl( &ehci->regs->command);
+	if (g_status & STS_IAA) 
+		{
+		/* guard against (alleged) silicon errata */
+		if (command & CMD_IAAD) 
+			{
+			ehci_writel(command & ~CMD_IAAD,
+					&ehci->regs->command);
+			
+			}
+		}
+		
+return ret;	
 }
 
 #include "ehci-mem.c"
@@ -301,7 +276,7 @@ static int ehci_init(void)
 	ehci->async->hw_token = cpu_to_hc32( QTD_STS_HALT);
 	ehci->async->hw_qtd_next = EHCI_LIST_END();
 	ehci->async->hw_alt_next = EHCI_LIST_END();//QTD_NEXT( ehci->async->dummy->qtd_dma);
-        ehci->ctrl_buffer =  USB_Alloc(sizeof(usbctrlrequest));
+    ehci->ctrl_buffer =  USB_Alloc(sizeof(usbctrlrequest));
 	ehci->command = 0;
 
 	ehci_writel( 0x008000002, &ehci->regs->command); 
@@ -426,6 +401,9 @@ struct ehci_qtd *qh_urb_transaction (
 	 * URBs map to sequences of QTDs:  one logical transaction
 	 */
 	head = qtd = ehci_qtd_alloc ();
+
+	if(!head) return NULL;
+
 	qtd->urb = urb;
 
         urb->actual_length = 0;
@@ -445,6 +423,7 @@ struct ehci_qtd *qh_urb_transaction (
 		token ^= QTD_TOGGLE;
 		qtd_prev = qtd;
 		qtd = ehci_qtd_alloc ();
+		if(!qtd) goto cleanup;
 		qtd->urb = urb;
 		qtd_prev->hw_next = QTD_NEXT( qtd->qtd_dma);
 		qtd_prev->next = qtd;
@@ -494,6 +473,7 @@ struct ehci_qtd *qh_urb_transaction (
 
 		qtd_prev = qtd;
 		qtd = ehci_qtd_alloc ();
+		if(!qtd) goto cleanup;
 		qtd->urb = urb;
 		qtd_prev->hw_next = QTD_NEXT( qtd->qtd_dma);
 		qtd_prev->next = qtd;
@@ -518,6 +498,7 @@ struct ehci_qtd *qh_urb_transaction (
 		if (one_more) {
 			qtd_prev = qtd;
 			qtd = ehci_qtd_alloc ();
+			if(!qtd) goto cleanup;
 			qtd->urb = urb;
 			qtd_prev->hw_next = QTD_NEXT( qtd->qtd_dma);
                         qtd_prev->next = qtd;
@@ -530,6 +511,9 @@ struct ehci_qtd *qh_urb_transaction (
 	/* by default, enable interrupt on urb completion */
         qtd->hw_token |= cpu_to_hc32( QTD_IOC);
 	return head;
+
+cleanup:
+	return NULL;
 }
 
 u32 usb_timeout=1000*1000;
@@ -562,6 +546,11 @@ u32 usb_timeout=1000*1000;
         qh = ehci->asyncqh;
         memset(qh,0,12*4);
         qtd = qh_urb_transaction ( urb);
+		if(!qtd) 
+	       {ehci->qtd_used=0;
+		   return -ENOMEM;
+		   }
+
         qh ->qtd_head = qtd;
         
         
@@ -728,7 +717,7 @@ s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpD
 }
 
 
-int ehci_reset_port(int port)
+int ehci_reset_port_old(int port)
 {
         u32 __iomem	*status_reg = &ehci->regs->port_status[port];
         struct ehci_device *dev = &ehci->devices[port];
@@ -779,15 +768,241 @@ int ehci_reset_port(int port)
         ehci_dbg ( "device %d: %X %X...\n", dev->id,le16_to_cpu(dev->desc.idVendor),le16_to_cpu(dev->desc.idProduct));
         return retval;
 }
+void ehci_adquire_port(int port)
+{
+	u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+	u32 status = ehci_readl(status_reg); 
 
+	//change owner, port disabled
+	status ^= PORT_OWNER;
+	status &= ~(PORT_PE | PORT_RWC_BITS);
+	ehci_writel(status, status_reg);	
+	ehci_msleep(5);
+	status = ehci_readl(status_reg);
+	status ^= PORT_OWNER;
+	status &= ~(PORT_PE | PORT_RWC_BITS);
+	ehci_writel(status, status_reg);	
+	ehci_msleep(5);
+	
+
+	//enable port	
+	ehci_writel( 0x1001,status_reg);
+    ehci_msleep(5);
+}
+
+int ehci_reset_usb_port(int port)
+{
+
+        u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+        //struct ehci_device *dev = &ehci->devices[port];        
+        u32 status = ehci_readl(status_reg);
+        
+        int retval = 0;
+        
+        if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
+        {
+        		//char cad[128];
+                ehci_writel( PORT_OWNER,status_reg);
+                ehci_dbg ( "port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
+                // sdlog("port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
+                //debug_sprintf(cad," usb not conected/owner port: %d status: %04X\n",port,status);
+        		//my_sprint(cad,NULL);
+                return -ENODEV;// no USB2 device connected
+        }
+        
+        //char cad[128];
+        //char str_log[1024];
+        //str_log[0]='\0';
+        ehci_dbg ( "port %d has usb2 device connected! reset it...\n", port);
+        // sdlog("status1: %04X\n",status);
+        //my_sprint(log,NULL);
+		status &= ~PORT_PE;
+		status |= PORT_RESET;        
+        ehci_writel( status,status_reg);
+        ehci_msleep(50);// wait 50ms for the reset sequence
+        status=ehci_readl(status_reg);
+        //debug_sprintf(cad," status2: %04X\n",status);strcat(log,cad);
+        // sdlog("status2: %04X\n",status);
+        status &= ~PORT_RESET;
+        ehci_writel( status,status_reg);
+        //debug_sprintf(cad," status3: %04X\n",ehci_readl(status_reg));strcat(log,cad);
+        // sdlog("status3: %04X\n",ehci_readl(status_reg));
+        //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
+        retval = handshake(status_reg, status_reg,
+                           PORT_RESET, 0, 750);
+        if (retval != 0) {
+                ehci_dbg ( "port %d reset error %d\n",
+                          port, retval);
+                status=ehci_readl(status_reg);
+                //debug_sprintf(cad,"handshake PORT_RESET error: %04x\n",status); strcat(log,cad);
+				// sdlog("handshake PORT_RESET error: %04x\n",status);   
+				//my_sprint(log,NULL);
+				retval=-2000;
+                return retval;
+        }
+        status=ehci_readl(status_reg);
+        ehci_dbg ( "port %d reseted status:%04x...\n", port,status);
+        
+		//debug_sprintf(cad," port reseted status: %04x\n",status);strcat(log,cad);
+		// sdlog("port reseted status: %04x\n",status);
+
+	if (!(status & PORT_PE)) {
+	         // that means is low speed device so release
+			status |= PORT_OWNER;
+			status &= ~PORT_RWC_BITS;
+			ehci_writel( status, status_reg);		
+	        ehci_msleep(10);
+	        status = ehci_readl(status_reg);   
+			//debug_sprintf(cad,"PORT_PE, release USB11 status: %04x\n",status); strcat(log,cad);
+			// sdlog("PORT_PE, release USB11 status: %04x\n",status);   
+			//my_sprint(log,NULL);
+	        return retval;	 
+	}
+	//my_sprint(log,NULL);ehci_msleep(50);
+	return retval;	
+}
+
+int ehci_init_port(int port)
+{	
+        struct ehci_device *dev = &ehci->devices[port];
+        int retval = 0;
+        dev->id = 0;
+	int i;
+	ehci_msleep(50);
+	for(i=0;i<3;i++)
+	{
+        
+        
+        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
+        // sdlog("getting USB_REQ_GETDESCRIPTOR\n");   
+        // now the device has the default device id
+        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
+                             USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
+        //retval=-1;
+        if (retval < 0) {
+        		//my_sprint("unable to get device desc...",NULL);ehci_msleep(50);
+        		// sdlog("error getting USB_REQ_GETDESCRIPTOR\n");
+                //ehci_dbg ( "unable to get device desc...\n");
+                retval=-2201;
+                ehci_msleep(100);
+                //return retval;
+        }
+        else break;
+    }
+    if (retval < 0)
+    {
+		for(i=0;i<3;i++)
+		{
+	        
+	        ehci_reset_usb_port(port);
+	        ehci_msleep(100);
+	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
+	        // sdlog("getting USB_REQ_GETDESCRIPTOR - reset\n");   
+	        // now the device has the default device id
+	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
+	                             USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
+	        if (retval < 0) {
+	        		//my_sprint("unable to get device desc...",NULL);ehci_msleep(50);
+	        		// sdlog("error getting USB_REQ_GETDESCRIPTOR\n");
+	                //ehci_dbg ( "unable to get device desc...\n");
+	                retval=-2201;
+	                
+	                //return retval;
+	        }
+	        else break;
+	    }
+    }
+    
+    if (retval < 0)
+    {
+		for(i=0;i<3;i++)
+		{
+			ehci_adquire_port(port);
+	        ehci_msleep(100);
+	        ehci_reset_usb_port(port);
+	        ehci_msleep(100);
+	        //my_sprint("getting USB_REQ_GETDESCRIPTOR",NULL);ehci_msleep(50);
+	        // sdlog("getting USB_REQ_GETDESCRIPTOR - adquire - reset\n");   
+	        // now the device has the default device id
+	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
+	                             USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
+	        if (retval < 0) {
+	        		//my_sprint("unable to get device desc...",NULL);ehci_msleep(50);
+	        		// sdlog("error getting USB_REQ_GETDESCRIPTOR\n");
+	                //ehci_dbg ( "unable to get device desc...\n");
+	                retval=-2201;
+	                
+	                //return retval;
+	        }
+	        else break;
+	    }
+    }
+
+    if (retval < 0) 	return -2201;
+    
+        // sdlog("USB_REQ_GETDESCRIPTOR ok\n");
+
+        int cnt=2;
+        do{
+	        ehci_msleep(100);
+	        // sdlog("trying USB_REQ_SETADDRESS: %d\n",cnt);
+	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_HOST2DEVICE,
+	                                      USB_REQ_SETADDRESS,cnt,0,0,0);
+	        if (retval < 0) {
+	        		//my_sprint("unable to set device addr...",NULL);
+	                ehci_dbg ( "unable to set device addr...\n");	                
+	                retval=-8000-cnt;
+	                // sdlog("unable to set device addr: %d\n",cnt);
+	                //return retval;
+	        }
+	        //else  sdlog("USB_REQ_SETADDRESS ok: %d\n",cnt);
+	
+	        dev->toggles = 0;
+	
+	        dev->id = cnt;
+	
+	        USB_ClearHalt(dev, 0);
+	        //USB_ClearHalt(dev, 0x80);
+			ehci_msleep(100);
+	        // sdlog("checking USB_REQ_GETDESCRIPTOR\n");
+	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
+	                             USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
+	                             
+	        
+	        if (retval < 0) {
+	        		//my_sprint("unable to get device desc...",NULL);
+	                ehci_dbg ( "unable to get device desc...\n");
+	                // sdlog("error checking USB_REQ_GETDESCRIPTOR\n");
+	                retval=-2242;
+	                dev->id =0;
+	                //return retval;
+	        }//else sdlog("ok checking USB_REQ_GETDESCRIPTOR\n");
+        
+        }while(retval<0 && cnt<20);
+        
+        //if(retval>=0)sdlog("init ok\n");
+        return retval;
+}
+
+int ehci_reset_port(int port)
+{
+	int retval;
+	retval=ehci_reset_usb_port(port);
+	if(retval>=0)retval=ehci_init_port(port);
+	return retval;
+}
 int ehci_reset_port2(int port)
 {
 u32 __iomem	*status_reg = &ehci->regs->port_status[port];
-int ret=ehci_reset_port(port);
-if(ret==-ENODEV)
+int ret=ehci_reset_port_old(port);
+if(ret<0/*==-ENODEV || ret==-ETIMEDOUT*/)
 	{
-    ehci_msleep(500); // power off 2 second 
-	ehci_writel( 0x1001 ,status_reg); // power on
+	u32 status=ehci_readl(status_reg);
+	if(status &  1)
+		{
+		ehci_msleep(500); // power off 
+		ehci_writel( 0x1001 ,status_reg); // power on
+		}
 	}
 return ret;
 }

@@ -210,13 +210,17 @@ for(m=0;m<len;m++)
 
 if(n>0)
 	{
-	ios_sync_after_write((void *) cad, n);
-	ios_write(fd, my_log, n);
+	os_sync_after_write((void *) cad, n);
+	os_write(fd, my_log, n);
 	}
 
 ios_close(fd);
 }
 #endif
+
+extern int unplug_device;
+
+int unplug_procedure(void);
 
 int ehc_loop(void)
 {
@@ -235,17 +239,18 @@ int ehc_loop(void)
 	
 
 	int queuehandle = os_message_queue_create(queuespace, 16);
+
 	
-	
+
 	os_device_register(DEVICE, queuehandle);
 	timer2_id=os_create_timer(WATCHDOG_TIMER, WATCHDOG_TIMER, queuehandle, 0x666);
+
 	
-	
-        int ums_mode = 0;
-        int already_discovered = 0;
-        wbfs_disc_t *d = 0;
+     int ums_mode = 0;
+     int already_discovered = 0;
+     wbfs_disc_t *d = 0;
       
-	  int usb_lock=0;
+	 int usb_lock=0;
 	
 	
 	while(1)
@@ -259,7 +264,6 @@ int ehc_loop(void)
 
         os_stop_timer(timer2_id); // stops watchdog timer
 		
-       
 
 		// timer message WATCHDOG
 		if((int) message==0x555) continue;
@@ -270,16 +274,21 @@ int ehc_loop(void)
 		if(must_read_sectors && watchdog_enable)
 			{
 			int n,m;
+
+			unplug_procedure();
+			if(unplug_device==0)
+				{
 	
 				n=USBStorage_Get_Capacity((void *) &m);
 				if(m<2048) // only support sector size minor to 2048
 					{
 					
 					USBStorage_Read_Sectors(last_sector, 1, mem_sector);
-					os_restart_timer(timer2_id, WATCHDOG_TIMER);
 					last_sector+=0x1000000/m; // steps of 16MB
 					if(last_sector>n) last_sector=0;
 					}
+				os_restart_timer(timer2_id, WATCHDOG_TIMER);
+				}
 			
 			
 			
@@ -297,7 +306,7 @@ int ehc_loop(void)
 				// Checking device name
 				if (0 == strcmp(message->open.device, DEVICE))
                                   {
-					result = message->open.resultfd;
+									result = message->open.resultfd;
                                         if(!already_discovered)
                                           ehci_discover();
                                         already_discovered=1;
