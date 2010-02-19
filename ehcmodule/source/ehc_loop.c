@@ -430,8 +430,9 @@ int ehc_loop(void)
 										
                                         break;
                                 case USB_IOCTL_UMS_READ_SECTORS:
-                                        if (verbose)
+                                       /* if (verbose)
                                                 debug_printf("%p read sector %d %d %p\n",&vec[0],ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
+												*/
                                      
 										result =   USBStorage_Read_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
 							
@@ -459,8 +460,9 @@ int ehc_loop(void)
                                         ums_mode = message->fd;
 											
 										int partition=0;
-                                        //    if (verbose)
+                                        /*    if (verbose)
                                                 debug_printf("ehc:use disc %s\n",ioctlv_voidp(vec[0]));
+												*/
 										if(vec[1].len==4) memcpy(&partition, ioctlv_voidp(vec[1]), 4);
                                          d = wbfs_init_with_partition(ioctlv_voidp(vec[0]), partition);
                                          if(!d)
@@ -471,10 +473,11 @@ int ehc_loop(void)
 										must_read_sectors=1;
                                         break;
                                 case USB_IOCTL_WBFS_READ_DISC:
-                                        if (verbose)
+                                        /*if (verbose)
                                                 debug_printf("r%x %x\n",ioctlv_u32(vec[0]),ioctlv_u32(vec[1]));
                                         else
                                                 debug_printf("r%x %x\r",ioctlv_u32(vec[0]),ioctlv_u32(vec[1]));
+												*/
                                         if(!d /*|| usb_lock*/)
                                                 result = -1;
                                         else
