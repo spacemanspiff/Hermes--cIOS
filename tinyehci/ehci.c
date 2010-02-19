@@ -219,7 +219,7 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 			{
 			if(g_status & (STS_ERR | STS_FATAL | STS_HALT)) 
 				{
-				if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ENODEV;}
+				if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ETIMEDOUT;/*ret=-ENODEV;*/}
 				goto handshake_exit;
 
 				}
@@ -246,10 +246,7 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		else
 		{
 		unplug_device=1;
-		ret=-ENODEV; /* Hermes: with ENODEV works the unplugin method receiving datas (fatal error)
-			            ENODEV return without retries and unplug_device can works without interferences.
-						i think is no a good idea too much retries when is possible the device needs one drastic action
-						*/
+		ret=-ETIMEDOUT;
 		}
 handshake_exit:	
  
@@ -682,7 +679,7 @@ u32 usb_timeout=1000*1000;
 		if(qh_end_transfer()!=0)
 			{
 
-			if(handshake_mode) retval=-ETIMEDOUT; else {unplug_device=1;retval=-ENODEV;}
+			if(handshake_mode) retval=-ETIMEDOUT; else {unplug_device=1;retval=-ETIMEDOUT;/*-ENODEV;*/}
             return retval;
 			}
 
@@ -756,34 +753,13 @@ s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpD
         return ret;
 }
 
-static int ehci_reset(void)
-{
-int     retval;
-u32     command = readl (&ehci->regs->command);
-int f=handshake_mode;
 
-	handshake_mode=2;
-	command |= CMD_RESET | 1;
-    writel (command, &ehci->regs->command);
-	ehci_msleep(100);
-	//command = readl (&ehci->regs->command);
-
-	writel (command & ~CMD_RESET, &ehci->regs->command);
-        
-    retval = handshake (&ehci->regs->port_status[0], &ehci->regs->command, CMD_RESET, 0, 250 * 1000);
-	ehci_msleep(10);
-	
-	handshake_mode=f;
-
- return retval;
-
-}
 
 int ehci_reset_port_old(int port)
 {
         u32 __iomem	*status_reg = &ehci->regs->port_status[port];
         struct ehci_device *dev = &ehci->devices[port];
-        u32 status = ehci_readl(status_reg);
+        u32 status ;//= ehci_readl(status_reg);
         int retval = 0,i,f;
 		u32 g_status;
         dev->id = 0;
@@ -815,9 +791,11 @@ int ehci_reset_port_old(int port)
 		ehci_writel( g_status & INTR_MASK,&ehci->regs->status);
 		g_status=ehci_readl (&ehci->regs->command);
 
+		status = ehci_readl(status_reg);
+
 		if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
         {
-               // ehci_writel( PORT_OWNER,status_reg);
+                ehci_writel( PORT_OWNER,status_reg);
                 ehci_dbg ( "port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
                 return -ENODEV;// no USB2 device connected
         }
@@ -833,7 +811,7 @@ int ehci_reset_port_old(int port)
         ehci_msleep(10);
         ehci_writel( 0x1903,status_reg);
 		ehci_msleep(100);// wait 100ms for the reset sequence
-        ehci_writel( 0x1801,status_reg);
+        ehci_writel( 0x1001,status_reg);
 		ehci_msleep(100);
 		status = ehci_readl(status_reg);
 		if ((PORT_OWNER&status) || !(PORT_CONNECT&status) || !(status & PORT_PE) || !(status & PORT_POWER) || PORT_USB11(status))
@@ -846,7 +824,7 @@ int ehci_reset_port_old(int port)
        
         //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
         retval = handshake(status_reg, status_reg,
-                           PORT_RESET, 0, 60*1000/*750*/);
+                           PORT_RESET, 0, 750);
         if (retval == 0) 
 			{
                /* ehci_dbg ( "port %d reset error %d\n",
@@ -1099,13 +1077,8 @@ u32 __iomem	*status_reg = &ehci->regs->port_status[port];
 int ret=ehci_reset_port_old(port);
 if(ret<0/*==-ENODEV || ret==-ETIMEDOUT*/)
 	{
-	ehci_msleep(100); // power off 
-	ehci_writel( 0x1803,status_reg);
-    ehci_msleep(100);
-    ehci_writel( 0x1903,status_reg);
-	ehci_msleep(100);// wait 100ms for the reset sequence
-    ehci_writel( 0x1801,status_reg);	
-		
+	ehci_msleep(500); // power off 
+    ehci_writel( 0x1001,status_reg);
 	}
 return ret;
 }

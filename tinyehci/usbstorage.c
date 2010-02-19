@@ -76,7 +76,7 @@ distribution.
 #ifdef HOMEBREW
 	#define USBSTORAGE_CYCLE_RETRIES	3
 #else
-	#define USBSTORAGE_CYCLE_RETRIES	2
+	#define USBSTORAGE_CYCLE_RETRIES	10
 #endif
 
 #define MAX_TRANSFER_SIZE			4096
@@ -350,7 +350,7 @@ static s32 __read_csw(usbstorage_handle *dev, u8 *status, u32 *dataResidue)
 extern u32 usb_timeout;
 
 
-static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, u8 cbLen, u8 write, u8 *_status, u32 *_dataResidue)
+static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, u8 cbLen, u8 write, u8 *_status, u32 *_dataResidue, s8 retries)
 {
 	s32 retval = USBSTORAGE_OK;
 
@@ -361,7 +361,7 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	u8 *buffer2=buffer;
 	u32 len2=len;
 
-	s8 retries = USBSTORAGE_CYCLE_RETRIES + 1;
+//	s8 retries = USBSTORAGE_CYCLE_RETRIES + 1;
 
 	do
 	{
@@ -371,7 +371,11 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	
 
     if(retval < 0)
-          retval=__usbstorage_reset(dev,0/*retries < USBSTORAGE_CYCLE_RETRIES*/);	
+		{
+        retval=__usbstorage_reset(dev,0);// WARNING! you cannot perform here a hardware reset
+
+		if(retval==-ENODEV) {unplug_device=1;return -ENODEV;}
+		}
 	retries--;
 	if(retval<0) continue; // nuevo
 
@@ -456,14 +460,14 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	} while(retval < 0 && retries > 0);
 
     // force unplug
-	if(retval < 0 && retries <= 0 && handshake_mode==0) {unplug_device=1;return -ENODEV;}
+	if(retval < 0 && retries <= 0 && handshake_mode==0) {unplug_device=1;return retval;/*-ENODEV*/;}
 
-	if(retval < 0 && retval != USBSTORAGE_ETIMEDOUT)
+/*	if(retval < 0 && retval != USBSTORAGE_ETIMEDOUT)
 	{
 		if(__usbstorage_reset(dev,0) == USBSTORAGE_ETIMEDOUT)
 			retval = USBSTORAGE_ETIMEDOUT;
 	}
-
+*/
 
 	if(_status != NULL)
 		*_status = status;
@@ -487,7 +491,7 @@ static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop
 	cmd[4] = start_stop & 3;
 	cmd[5] = 0;
 	//memset(sense, 0, SCSI_SENSE_REPLY_SIZE);
-	retval = __cycle(dev, lun, NULL, 0, cmd, 6, 0, &status, NULL);
+	retval = __cycle(dev, lun, NULL, 0, cmd, 6, 0, &status, NULL, USBSTORAGE_CYCLE_RETRIES);
 //	if(retval < 0) goto error;
 
 /*	
@@ -518,7 +522,7 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 		for(n=0;n<5;n++)
 			{
 			
-			retval = __cycle(dev, lun, NULL, 0, cmd, 6, 1, &status, NULL);
+			retval = __cycle(dev, lun, NULL, 0, cmd, 6, 1, &status, NULL, USBSTORAGE_CYCLE_RETRIES);
 
 			#ifdef MEM_PRINT
 			s_printf("    SCSI_TEST_UNIT_READY %i# ret %i\n", n, retval);
@@ -539,7 +543,7 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 		cmd[4] = SCSI_SENSE_REPLY_SIZE;
 		cmd[5] = 0;
 		memset(sense, 0, SCSI_SENSE_REPLY_SIZE);
-		retval = __cycle(dev, lun, sense, SCSI_SENSE_REPLY_SIZE, cmd, 6, 0, NULL, NULL);
+		retval = __cycle(dev, lun, sense, SCSI_SENSE_REPLY_SIZE, cmd, 6, 0, NULL, NULL, USBSTORAGE_CYCLE_RETRIES);
 
 		#ifdef MEM_PRINT
 		s_printf("    SCSI_REQUEST_SENSE ret %i\n", retval);
@@ -573,12 +577,15 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
     int retry = 0;  //first try soft reset
 	int h_mode=handshake_mode;
 	
+	int hard_reset_done=0;
+
 	u32 status;
 		//
  retry:
 	 handshake_mode=1;
-        if (retry >= 1){
+        if ( hard_reset){
                 u8 conf;
+				hard_reset_done=1;
                 debug_printf("reset device..\n");
                 retval = ehci_reset_device(dev->usb_fd);
 				if(retval<0) 
@@ -611,14 +618,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
                         goto end;
                 if(dev->altInterface != 0 && USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
                         goto end;
-				if(__lun != 16)
-					{
-					if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
-                        goto end;
-					
-					__mounted = 1;
-		
-					}
+				
         }
         debug_printf("usbstorage reset..\n");
 
@@ -645,7 +645,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 
     
 	/* gives device enough time to process the reset */
-	ehci_msleep(10);
+	ehci_msleep(20);
 	
 
         debug_printf("clear halt on bulk ep..\n");
@@ -666,6 +666,14 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 	#endif
 	if(retval < 0)
 		goto end;
+
+	if(__lun != 16 && hard_reset && hard_reset_done)
+		{
+		if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
+        goto end;			
+		__mounted = 1;
+		
+		}
 
     unplug_device=0;
 
@@ -1021,7 +1029,7 @@ s32 USBStorage_Inquiry(usbstorage_handle *dev, u8 lun)
 
 	if(!response) return -ENOMEM;
 
-	retval = __cycle(dev, lun, response, 36, cmd, 6, 0, NULL, NULL);
+	retval = __cycle(dev, lun, response, 36, cmd, 6, 0, NULL, NULL, USBSTORAGE_CYCLE_RETRIES);
         //print_hex_dump_bytes("inquiry result:",DUMP_PREFIX_OFFSET,response,36);
     USB_Free(response);
 
@@ -1035,7 +1043,7 @@ s32 USBStorage_ReadCapacity(usbstorage_handle *dev, u8 lun, u32 *sector_size, u3
         u32 val;
 	if(!response) return -ENOMEM;
 
-	retval = __cycle(dev, lun, response, 8, cmd, 2, 0, NULL, NULL);
+	retval = __cycle(dev, lun, response, 8, cmd, 2, 0, NULL, NULL, USBSTORAGE_CYCLE_RETRIES);
 	if(retval >= 0)
 	{
                 
@@ -1072,7 +1080,7 @@ static s32 __USBStorage_Read(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_s
 	if(lun >= dev->max_lun || dev->sector_size[lun] == 0 || !dev)
 		return -EINVAL;
     
-	retval = __cycle(dev, lun, buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL);
+	retval = __cycle(dev, lun, buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL, 3);
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
 	return retval;
@@ -1096,7 +1104,7 @@ static s32 __USBStorage_Write(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_
 		};
 	if(lun >= dev->max_lun || dev->sector_size[lun] == 0)
 		return -EINVAL;
-	retval = __cycle(dev, lun, (u8 *)buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL);
+	retval = __cycle(dev, lun, (u8 *)buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL,3);
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
 	return retval;
@@ -1376,21 +1384,26 @@ int retval=1;
 
  if(unplug_device!=0 )
 			{
-			
-			if(__usbfd.usb_fd)
-			   if(ehci_reset_port2(/*__usbfd.usb_fd->port*/0)>=0)	
+	        if(__usbfd.buffer != NULL)
 				{
-                
-				if(ehci_reset_port(0)>=0)
-					{
-					if(__usbfd.buffer != NULL)
-						USB_Free(__usbfd.buffer);
-					__usbfd.buffer= NULL;
+				retval=__usbstorage_reset(&__usbfd,1); // perform hardware reset
 
-					handshake_mode=1;
-					if(USBStorage_Try_Device(__usbfd.usb_fd)==0) {retval=0;unplug_device=0;}
-					handshake_mode=0;
-					}
+				if(retval<0) retval=1; else retval=0;
+				}
+			   if(unplug_device!=0 || __mounted==0)
+				   if(ehci_reset_port2(/*__usbfd.usb_fd->port*/0)>=0)	
+					{
+					
+					if(ehci_reset_port(0)>=0)
+						{
+						if(__usbfd.buffer != NULL)
+							USB_Free(__usbfd.buffer);
+						__usbfd.buffer= NULL;
+
+						handshake_mode=1;
+						if(USBStorage_Try_Device(&ehci->devices[0])==0) {retval=0;unplug_device=0;}
+						handshake_mode=0;
+						}
 
 				}
 			ehci_msleep(100);

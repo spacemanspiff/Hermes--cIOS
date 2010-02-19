@@ -45,7 +45,11 @@ wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
             return 0;
 			}
         //find wbfs partition
-		if(tmp_buffer[0x1bc]!=0 || tmp_buffer[0x1bd]!=0 || tmp_buffer[0x1fe]!=0x55 || tmp_buffer[0x1ff]!=0xaa) wbfs_memset(part_table,0,16*4);
+		if(tmp_buffer[0x1fe]!=0x55 || tmp_buffer[0x1ff]!=0xaa 
+			|| !strncmp((void *) &tmp_buffer[3],"NTFS",4) 
+			|| !strncmp((void *) &tmp_buffer[0x36],"FAT",3)
+			|| !strncmp((void *) &tmp_buffer[0x52],"FAT",3)
+		) wbfs_memset(part_table,0,16*4);
 		else wbfs_memcpy(part_table,tmp_buffer+0x1be,16*4);
 
         ptr = part_table;
