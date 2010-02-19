@@ -200,7 +200,7 @@ int ehc_loop(void)
 	
 	init_thread_ehci();
 
-	os_thread_set_priority(os_get_thread_id(), /*os_thread_get_priority()-1*/0x54);
+	os_thread_set_priority(os_get_thread_id(), /*os_thread_get_priority()-1*/0x78);
 
 	os_device_register(DEVICE, queuehandle);
 	timer2_id=os_create_timer(WATCHDOG_TIMER, WATCHDOG_TIMER, queuehandle, 0x0);
