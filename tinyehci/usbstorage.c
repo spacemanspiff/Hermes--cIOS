@@ -67,7 +67,7 @@ distribution.
 
 #define USBSTORAGE_CYCLE_RETRIES	10
 
-#define MAX_TRANSFER_SIZE			32768
+#define MAX_TRANSFER_SIZE			4096
 
 #define DEVLIST_MAXSIZE    8
 
@@ -655,7 +655,7 @@ u32 max_sectors=n_sectors;
 u32 sectors;
 s32 ret=-1;
 
-	if(n_sectors * dev->sector_size[lun]>MAX_TRANSFER_SIZE) max_sectors= MAX_TRANSFER_SIZE/dev->sector_size[lun];
+	if(n_sectors * dev->sector_size[lun]>32768) max_sectors= 32768/dev->sector_size[lun];
 
 	while(n_sectors>0)
 		{
@@ -677,7 +677,7 @@ u32 max_sectors=n_sectors;
 u32 sectors;
 s32 ret=-1;
 
-	if((n_sectors * dev->sector_size[lun])>MAX_TRANSFER_SIZE) max_sectors=MAX_TRANSFER_SIZE/dev->sector_size[lun];
+	if((n_sectors * dev->sector_size[lun])>32768) max_sectors=32768/dev->sector_size[lun];
 
 	while(n_sectors>0)
 		{
