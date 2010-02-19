@@ -27,6 +27,10 @@ static u8 size_to_shift(u32 size)
 }
 #define read_le32_unaligned(x) ((x)[0]|((x)[1]<<8)|((x)[2]<<16)|((x)[3]<<24))
 
+static u8 *last_sect_buff=0;
+
+static u32 last_sect=0xffffffff;
+static int my_hd_sector_size=0;
 
 wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
                  rw_sector_callback_t write_hdsector,
@@ -38,6 +42,9 @@ wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
         u8 part_table[16*4];
 		u32 last_lba=0xFFFFFFFF;
 		int l=0;
+		last_sect=0xffffffff;
+		if(!last_sect_buff) last_sect_buff = wbfs_ioalloc(hd_sector_size);
+		my_hd_sector_size=hd_sector_size;
         ret = read_hdsector(callback_data,0,1,tmp_buffer);
         if(ret)
 			{
@@ -143,6 +150,8 @@ wbfs_t*wbfs_open_hd(rw_sector_callback_t read_hdsector,
 	wbfs_iofree(tmp_buffer);
         return 0;
 }
+
+
 wbfs_t*wbfs_open_partition(rw_sector_callback_t read_hdsector,
                            rw_sector_callback_t write_hdsector,
                            void *callback_data,
@@ -159,6 +168,8 @@ wbfs_t*wbfs_open_partition(rw_sector_callback_t read_hdsector,
         p->n_wii_sec_per_disc = 143432*2;//support for double layers discs..
         p->head = head;
         p->part_lba = part_lba;
+
+		my_hd_sector_size=hd_sector_size;
         // init the partition
         if (reset)
         {
@@ -249,6 +260,7 @@ wbfs_disc_t *wbfs_open_disc(wbfs_t* p, u8 *discid)
         u32 i;
         int disc_info_sz_lba = p->disc_info_sz>>p->hd_sec_sz_s;
         wbfs_disc_t *d = 0;
+		last_sect=0xffffffff;
         for(i=0;i<p->max_disc;i++)
         {
                 if (p->head->disc_table[i]){
@@ -304,10 +316,22 @@ int wbfs_disc_read(wbfs_disc_t*d,u32 offset, u8 *data, u32 len)
                 return 1;
         if(unlikely(off)){
                 off*=4;
-                err = p->read_hdsector(p->callback_data,
+
+				if(last_sect==(p->part_lba + (iwlba<<iwlba_shift) + lba))
+					{
+					err=0;wbfs_memcpy(p->tmp_buffer, last_sect_buff, my_hd_sector_size);
+					}
+				else
+					{
+					err = p->read_hdsector(p->callback_data,
                                        p->part_lba + (iwlba<<iwlba_shift) + lba, 1, p->tmp_buffer);
-                if(err)
+					if(err)
                         return err;
+
+					last_sect=(p->part_lba + (iwlba<<iwlba_shift) + lba);
+					wbfs_memcpy(last_sect_buff, p->tmp_buffer, my_hd_sector_size);
+					}
+
                 len_copied = p->hd_sec_sz - off;
                 if(likely(len < len_copied))
                         len_copied = len;
@@ -347,6 +371,8 @@ int wbfs_disc_read(wbfs_disc_t*d,u32 offset, u8 *data, u32 len)
                                  p->part_lba + (iwlba<<iwlba_shift) + lba, 1, p->tmp_buffer);
                 if(err)
                         return err;
+				last_sect=(p->part_lba + (iwlba<<iwlba_shift) + lba);
+				wbfs_memcpy(last_sect_buff, p->tmp_buffer, my_hd_sector_size);
                 wbfs_memcpy(ptr, p->tmp_buffer, len);
         }     
         return 0;

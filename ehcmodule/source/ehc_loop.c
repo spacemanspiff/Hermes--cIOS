@@ -39,6 +39,7 @@
 #include "ehci.h"
 #include "utils.h"
 #include "libwbfs.h"
+#include "ehci_interrupt.h"
 
 void ehci_usleep(int usec);
 void ehci_msleep(int msec);
@@ -72,6 +73,9 @@ void ehci_msleep(int msec);
 #define USB_IOCTL_UMS_UMOUNT			(UMS_BASE+0x10)
 #define USB_IOCTL_UMS_WATCHDOG			(UMS_BASE+0x80)
 
+#define USB_IOCTL_UMS_TESTMODE			(UMS_BASE+0x81)
+
+
 #define WBFS_BASE (('W'<<24)|('F'<<16)|('S'<<8))
 #define USB_IOCTL_WBFS_OPEN_DISC	        (WBFS_BASE+0x1)
 #define USB_IOCTL_WBFS_READ_DISC	        (WBFS_BASE+0x2)
@@ -92,10 +96,10 @@ int verbose = 0;
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition);
 
 
-#define WATCHDOG_TIMER 1000*1000*16
+#define WATCHDOG_TIMER 1000*1000*10
 
 
-
+int test_mode=0;
 
 char *parse_hex(char *base,int *val)
 {
@@ -156,7 +160,7 @@ void *WBFS_Alloc(int size)
   ret= os_heap_alloc(heaphandle, size);
   if(ret==0)
 	{debug_printf("WBFS not enough memory! need %d\n",size);
-    my_sprint("WBFS not enough memory!", NULL);
+    os_puts("WBFS not enough memory!\n");
     while(1) ehci_msleep(100);
 	}
   return ret;
@@ -166,60 +170,7 @@ void WBFS_Free(void *ptr)
         return os_heap_free(heaphandle, ptr);
 }
 
-void my_sprint(char *cad, char *s)
-{
-#if 0
-int n=strlen(cad);
-int m=0;
-int fd;
-os_sync_after_write(cad, n);
-if(s) {m=strlen(s);os_sync_after_write(s, m);}
 
-fd=os_open("/dev/fat/log", 1);
-if(fd<0) return;
-os_write(fd, cad, n);
-
-if(s)
-   os_write(fd, s, m);
-os_close(fd);
-#endif
-}
-
-#if 0
-
-char my_log[256];
-
-void my_dump(char *cad, char *dat, int len)
-{
-int n,m;
-int fd;
-
-
-fd=ios_open("/dev/fat/log", 1);
-if(fd<0) return;
-
-n=0;
-while(*cad) {my_log[n]=*cad++;n++;}
-my_log[n]='\n';n++;
-
-for(m=0;m<len;m++)
-	{
-	if(n>=253) {ios_write(fd, my_log, n);n=0;}
-	my_log[n]=((*dat>>8) & 0xf)+48;if(my_log[n]>'9')  my_log[n]+=7; n++;
-	my_log[n]=((*dat) & 0xf)+48;if(my_log[n]>'9')  my_log[n]+=7; n++;
-    my_log[n]=((m & 15)!=15) ? ' ' : '\n'; n++;
-	dat++;
-	}
-
-if(n>0)
-	{
-	os_sync_after_write((void *) cad, n);
-	os_write(fd, my_log, n);
-	}
-
-ios_close(fd);
-}
-#endif
 
 extern int unplug_device;
 
@@ -228,6 +179,7 @@ int unplug_procedure(void);
 extern int is_watchdog_read_sector;
 
 extern u32 n_sec,sec_size;
+
 
 int ehc_loop(void)
 {
@@ -239,15 +191,16 @@ int ehc_loop(void)
 	int must_read_sectors=0;
 	
 
-    my_sprint("ehc loop entry", NULL);
 	
 	void* queuespace = os_heap_alloc(heaphandle, 0x80);
 
-	
 
 	int queuehandle = os_message_queue_create(queuespace, 32);
 
 	
+	init_thread_ehci();
+
+	os_thread_set_priority(os_get_thread_id(), /*os_thread_get_priority()-1*/0x54);
 
 	os_device_register(DEVICE, queuehandle);
 	timer2_id=os_create_timer(WATCHDOG_TIMER, WATCHDOG_TIMER, queuehandle, 0x0);
@@ -259,16 +212,20 @@ int ehc_loop(void)
 	 int usb_lock=0;
 
 	 int watch_time_on=1;
+
+
 	
 	
 	while(1)
 	{
 		int result = 1;
 		int ack = 1;
-
+		
 	
 		// Wait for message to arrive
 		os_message_queue_receive(queuehandle, (void*)&message, 0);
+
+		
 
 		// timer message WATCHDOG
 		//if((int) message==0x555) continue;
@@ -281,6 +238,8 @@ int ehc_loop(void)
 
 		if((int) message==0x0)
 		{
+		if(test_mode)
+			watchdog_enable=0; // test mode blocks watchdog
 		
 		if(must_read_sectors && watchdog_enable)
 			{
@@ -324,14 +283,17 @@ int ehc_loop(void)
 		{
 			case IOS_OPEN:
 			{
+			
                                 //debug_printf("%s try open %sfor fd %d\n",DEVICE,message->open.device,message->open.resultfd);
 				// Checking device name
 				if (0 == strcmp(message->open.device, DEVICE))
                                   {
 									result = message->open.resultfd;
-                                        if(!already_discovered)
+                                     
+										if(!already_discovered)
                                           ehci_discover();
                                         already_discovered=1;
+										
                                   }
 				else if (!ums_mode && 0 == memcmp(message->open.device, DEVICE"/", sizeof(DEVICE)))
                                         result = parse_and_open_device(message->open.device+sizeof(DEVICE),message->open.resultfd);
@@ -342,6 +304,7 @@ int ehc_loop(void)
 
 			case IOS_CLOSE:
 			{
+			
                                 //debug_printf("close  fd %d\n",message->fd);
                                 if(ums_mode == message->fd)
                                         ums_mode = 0;
@@ -354,8 +317,9 @@ int ehc_loop(void)
 
 			case IOS_IOCTL:
 			{
-                          break;
-                        }
+			
+            break;
+            }
 			case IOS_IOCTLV:
 			{
                                 ioctlv *vec = message->ioctlv.vector;
@@ -369,6 +333,7 @@ int ehc_loop(void)
                                         //print_hex_dump_bytes("vec",0, vec[i].data,vec[i].len);
                                 }
 
+	
                                 switch( message->ioctl.command )
                                 {
                                 case  USB_IOCTL_CTRLMSG:
@@ -409,17 +374,24 @@ int ehc_loop(void)
 										must_read_sectors=0;
 										
                                         result = USBStorage_Init();
+										
+										
 										//result=-os_thread_get_priority();
 										if(result>=0) {must_read_sectors=1;watchdog_enable=1;}
                                         ums_mode = message->fd;
-										if(result>=0) my_sprint("UMS Init", NULL); else  my_sprint("UMS fail", NULL);
+										
                                         break;
 								case USB_IOCTL_UMS_UMOUNT:
 										must_read_sectors=0;
 										watchdog_enable=0;
-                                        USBStorage_Umount();
+                                       // USBStorage_Umount();
 										result =0;
 										break;
+								case USB_IOCTL_UMS_TESTMODE:
+										test_mode=ioctlv_u32(vec[0]);
+										result =0;
+										break;
+								
                                 case USB_IOCTL_UMS_GET_CAPACITY:
 									    n_sec =  USBStorage_Get_Capacity(&sec_size);
                                         result =n_sec ;
@@ -433,7 +405,9 @@ int ehc_loop(void)
                                        /* if (verbose)
                                                 debug_printf("%p read sector %d %d %p\n",&vec[0],ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
 												*/
-                                     
+                                        #ifdef VIGILANTE
+										enable_button=1;
+										#endif
 										result =   USBStorage_Read_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
 							
 										//udelay(ioctlv_u32(vec[1])*125);
@@ -441,10 +415,15 @@ int ehc_loop(void)
 										
                                         break;
                                 case USB_IOCTL_UMS_WRITE_SECTORS:
+
+									    #ifdef VIGILANTE
+										enable_button=1;
+										#endif
+
                                         result =  USBStorage_Write_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
                                         break;
                                 case USB_IOCTL_UMS_READ_STRESS:
-                                        result =   USBStorage_Read_Stress(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
+                                      //  result =   USBStorage_Read_Stress(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
                                         break;
                                 case USB_IOCTL_UMS_SET_VERBOSE:
                                         verbose = !verbose;
@@ -460,6 +439,9 @@ int ehc_loop(void)
                                         ums_mode = message->fd;
 											
 										int partition=0;
+										#ifdef VIGILANTE
+										enable_button=1;
+										#endif
                                         /*    if (verbose)
                                                 debug_printf("ehc:use disc %s\n",ioctlv_voidp(vec[0]));
 												*/
@@ -469,8 +451,9 @@ int ehc_loop(void)
                                                result = -1;
                                          else
 											{result = 0;watchdog_enable=1;}
-                                        my_sprint("WBFS Open()", NULL);
+                                        
 										must_read_sectors=1;
+										
                                         break;
                                 case USB_IOCTL_WBFS_READ_DISC:
                                         /*if (verbose)
@@ -482,6 +465,7 @@ int ehc_loop(void)
                                                 result = -1;
                                         else
 									{
+									
 											usb_lock=1;
 											//os_stop_timer(timer2_id);
                                                 result = wbfs_disc_read(d,ioctlv_u32(vec[0]),ioctlv_voidp(vec[2]),ioctlv_u32(vec[1]));

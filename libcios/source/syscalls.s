@@ -6,6 +6,8 @@ info from http://wiibrew.org/wiki/IOS/Syscalls
 	.long 0xE6000010 +(\vec_sys<<5)
 	bx lr
 .endm
+	.align 4
+	.arm
 
 	.code 32
 	.global os_thread_create
@@ -242,6 +244,14 @@ os_sync_after_write:
 	.global os_syscall_50
 os_syscall_50:
 	syscall 0x50
+
+	.code 32
+	.global os_puts
+os_puts:
+	adds r1,r0,#0
+	movs R0,#4
+	svc 0xAB
+	bx lr
 
 
 

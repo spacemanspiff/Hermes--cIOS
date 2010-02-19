@@ -39,9 +39,9 @@
 
 u32 n_sec,sec_size;
 
-s32 USBStorage_Read_Sectors_ingame(u32 sector, u32 numSectors, void *buffer, int speed_limit);
 
-extern int DVD_speed_limit;
+
+
 
 static int read_sector(void *ign,u32 lba,u32 count,void*buf)
 {
@@ -49,9 +49,12 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
 		
 	
 	    os_sync_after_write(buf, count*sec_size);
+
+	/*	do
+		{*/
         ret = USBStorage_Read_Sectors(lba,count, buf);
-        if(!ret)
-                return 1;
+		/*}*/
+        if(!ret) return 1;
 
         os_sync_before_read(buf, count*sec_size);
         return 0;
@@ -68,7 +71,7 @@ wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 			{
 			USBStorage_Init();
 			n_sec =  USBStorage_Get_Capacity(&sec_size);
-			debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
+			//debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
 			if (n_sec==0)
                 return NULL; //no hd
 			p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0); 

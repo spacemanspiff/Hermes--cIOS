@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "syscalls.h"
+#include "swi_mload.h"
 
 int tiny_ehci_init(void);
 
@@ -100,33 +101,125 @@ void ehci_mdelay(int msec)//@todo not really sleeping..
 int ehc_loop(void);
 
 int heaphandle=-1;
-unsigned int heapspace[0x4000*2] __attribute__ ((aligned (32)));
+unsigned int heapspace[0x8800] __attribute__ ((aligned (32)));
 
+
+void interrupt_vector(void);
+void patch1_timer(void);
+void patch2_timer_cont(void);
+void int_send_device_message(u32);
+
+void direct_os_sync_before_read(void* ptr, int size);
+void direct_os_sync_after_write(void* ptr, int size);
+void ic_invalidate(void);
+
+static u32 vector[2]={ 0xE51FF004, 0}; // ldr pc,=addr
+
+u32 syscall_base;
+
+
+
+int copy_int_vect(u32 ios, u32 none)
+{
+
+	switch(ios)
+	{
+	case 36:
+
+		vector[1]= (u32) interrupt_vector;
+		ic_invalidate();
+		memcpy((void *) 0xFFFF1E78, vector,8); // fix interrupt jump
+		direct_os_sync_after_write((void *)  0xFFFF1E78, 8);
+		break;
+
+	case 37:
+
+		vector[1]= (u32) 0xFFFF1F70;
+		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
+		direct_os_sync_after_write((void *) patch1_timer, 8);
+
+		vector[1]= (u32) 0xFFFF1F8C;
+		memcpy((void *) patch2_timer_cont, vector,8); // patch2-> next interrupt case
+		direct_os_sync_after_write((void *) patch2_timer_cont, 8);
+
+		vector[1]= (u32) 0xFFFF1E34;
+		memcpy((void *) int_send_device_message, vector,8); // patch3 ->send device message
+		direct_os_sync_after_write((void *) int_send_device_message, 8);
+
+		vector[1]= (u32) interrupt_vector;
+		ic_invalidate();
+		memcpy((void *) 0xFFFF1F68, vector,8); // fix interrupt jump
+		direct_os_sync_after_write((void *)  0xFFFF1F68, 8);
+		break;
+
+	case 38:
+
+		vector[1]= (u32) 0xFFFF1EB0;
+		memcpy((void *) patch1_timer, vector, 8); // patch1 -> timer
+		direct_os_sync_after_write((void *) patch1_timer, 8);
+
+		vector[1]= (u32) 0xFFFF1ECC;
+		memcpy((void *) patch2_timer_cont, vector, 8); // patch2-> next interrupt case
+		direct_os_sync_after_write((void *) patch2_timer_cont, 8);
+
+		vector[1]= (u32) 0xFFFF1D74;
+		memcpy((void *) int_send_device_message, vector, 8); // patch3 ->send device message
+		direct_os_sync_after_write((void *) int_send_device_message, 8);
+
+		vector[1]= (u32) interrupt_vector;
+		ic_invalidate();
+		memcpy((void *) 0xFFFF1EA8, vector,8);
+		direct_os_sync_after_write((void *)  0xFFFF1EA8, 8);
+		break;
+
+	case 60:
+
+		vector[1]= (u32) 0xFFFF2130;
+		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
+		direct_os_sync_after_write((void *) patch1_timer, 8);
+
+		vector[1]= (u32) 0xFFFF214C;
+		memcpy((void *) patch2_timer_cont, vector,8); // patch2-> next interrupt case
+		direct_os_sync_after_write((void *) patch2_timer_cont, 8);
+
+		vector[1]= (u32) 0xFFFF1FF4;
+		memcpy((void *) int_send_device_message, vector,8); // patch3 ->send device message
+		direct_os_sync_after_write((void *) int_send_device_message, 8);
+
+		vector[1]= (u32) interrupt_vector;
+		ic_invalidate();
+		memcpy((void *) 0xFFFF2128, vector,8); // fix interrupt jump
+		direct_os_sync_after_write((void *)  0xFFFF2128, 8);
+		break;
+	}
+
+		//*((volatile u32 *)0x0d8000c0) |=0x20;
+
+return 0;
+}
 
 int main(void)
 {
+
+
+// changes IOS vector interrupt to crt0.s routine
+
+syscall_base=swi_mload_get_syscall_base();
+os_sync_after_write((void *) &syscall_base, 4);
+
+swi_mload_call_func((void *) copy_int_vect, (void *) swi_mload_get_ios_base(), NULL);
+
 
 heaphandle = os_heap_create(heapspace, sizeof(heapspace));
 
 void* timer1_queuespace = os_heap_alloc(heaphandle, 0x80);
 
 timer1_queuehandle = os_message_queue_create(timer1_queuespace, 32);
-//timer1_id=os_create_timer(1000*1000, 1000, timer1_queuehandle, 0x666);
-//os_stop_timer(timer1_id);
 
 
-	//os_unregister_event_handler(DEV_EHCI);
-	
-	/*
-	// don´t work (may be EHCI irq is not supported)
-	if(os_register_event_handler(DEV_EHCI, timer1_queuehandle, 0x0)!=0) return -1;
-	os_software_IRQ(DEV_EHCI);
-	*/
 
     if(tiny_ehci_init()<0) return -1;
 	
-
-	os_thread_set_priority(os_get_thread_id(), 0x78);
   
     ehc_loop();
 

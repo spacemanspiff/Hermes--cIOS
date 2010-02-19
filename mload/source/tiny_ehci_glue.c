@@ -97,8 +97,8 @@ u8 heap_space2[0x5000] __attribute__ ((aligned (32)));
 
 #include "ehci-mem.c"
 
-static usbctrlrequest mem_usbctrlrequest __attribute__ ((aligned (32)));
-
+//static usbctrlrequest mem_usbctrlrequest __attribute__ ((aligned (32)));
+static u8 mem_usbctrlrequest[sizeof(usbctrlrequest)+32]  __attribute__ ((aligned (32)));
 static int ehci_init(void)
 {
         int retval;
@@ -116,17 +116,19 @@ static int ehci_init(void)
 	ehci->async->hw_token = cpu_to_hc32( QTD_STS_HALT);
 	ehci->async->hw_qtd_next = EHCI_LIST_END();
 	ehci->async->hw_alt_next = EHCI_LIST_END();//QTD_NEXT( ehci->async->dummy->qtd_dma);
-        ehci->ctrl_buffer =  &mem_usbctrlrequest ;//USB_Alloc(sizeof(usbctrlrequest));
+    ehci->ctrl_buffer =  mem_usbctrlrequest ;//USB_Alloc(sizeof(usbctrlrequest));
 	ehci->command = 0;
+
+    ehci_dma_map_bidir(ehci->async,sizeof(struct ehci_qh));
 
 	ehci_writel( 0x008000002, &ehci->regs->command); 
 	msleep(20);
 	ehci_writel( ehci->periodic_dma, &ehci->regs->frame_list); 
 	ehci_writel( ehci->async->qh_dma, &ehci->regs->async_next); 
-	ehci_writel( 0x00020009, &ehci->regs->command);
+	ehci_writel( 0x00010001, &ehci->regs->command);
 	msleep(20);
 	ehci_writel( 1, &ehci->regs->configured_flag);
-	ehci_writel( 0x00020029, &ehci->regs->command);
+	ehci_writel( 0x00010021, &ehci->regs->command);
 	msleep(20);
 
 
@@ -171,6 +173,9 @@ int ehci_adquire_port(int port)
 	
 return 0;
 }
+
+extern u8 *text_log;
+
 int tiny_ehci_init(void)
 {
         int retval;
@@ -184,6 +189,8 @@ int tiny_ehci_init(void)
         ehci->num_port = 4; // aqui numero de puertos usb
 	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(&ehci->caps->hcs_params);
+
+	text_log=ehci_maligned(4096, 4096, 4096);
 
 	/* data structure init */
 	retval = ehci_init();
@@ -234,7 +241,7 @@ void*ehci_maligned(int size,int alignement,int crossing)
         if (((addr +size-1)& ~(crossing-1)) != (addr&~(crossing-1)))
                 addr = (addr +size-1)&~(crossing-1);
         aligned_mem = (void*)(addr + size);
-        if (aligned_mem>aligned_base + 0x2000) 
+        if (aligned_mem>aligned_base + 0x4000) 
         {
                 debug_printf("not enough aligned memory!\n");
 		while(1) msleep(1);

@@ -31,8 +31,9 @@ distribution.
 #define ROUNDDOWN32(v)				(((u32)(v)-0x1f)&~0x1f)
 
 //#define	HEAP_SIZE			(32*1024)
-//#define	TAG_START			0x1//BADC0DE
-#define	TAG_START			0x22112211
+//#define	TAG_START			0x22112211
+
+#define	TAG_START			0x2C0DE001
 
 #define	CBW_SIZE			31
 #define	CBW_SIGNATURE			0x43425355
@@ -76,33 +77,33 @@ distribution.
 #define	USBSTORAGE_CYCLE_RETRIES	10
 
 
-#define MAX_TRANSFER_SIZE			4096
+#define MAX_TRANSFER_SIZE			0x1000
 
 #define DEVLIST_MAXSIZE    8
 
+
+int use_reset_bulk=0;
+
 static int ums_init_done = 0;
-
-extern int handshake_mode; // 0->timeout force -ENODEV 1->timeout return -ETIMEDOUT
-
-static bool first_access=true;
 
 static usbstorage_handle __usbfd;
 static u8 __lun = 16;
 static u8 __mounted = 0;
 static u16 __vid = 0;
 static u16 __pid = 0;
+extern u32 current_port;
 
-//0x1377E000
+void reinit_ehci_headers(void);
+void ehci_stop(void);
+void ehci_run(void);
 
-//#define MEM_PRINT 1
+
+#define MEM_PRINT 1
 
 #ifdef MEM_PRINT
 
-// this dump from 0x13750000 to 0x13770000 log messages 
-
 char mem_cad[32];
 
-char *mem_log=(char *) 0x13750000;
 
 #include <stdarg.h>    // for the s_printf function
 
@@ -129,6 +130,39 @@ int n,m;
 
 	n=0;m=16;
 	if(sign) {mem_cad[n]='-';n++;}
+
+	while(mem_cad[m]=='0') m++;
+
+	if(mem_cad[m]==0) m--;
+
+	while(mem_cad[m]) 
+	 {
+	 mem_cad[n]=mem_cad[m];
+	 n++;m++;
+	 }
+	mem_cad[n]=0;
+
+}
+
+void uint_char(unsigned int num)
+{
+int n,m;
+
+	if(num==0)
+		{
+		mem_cad[0]='0';mem_cad[1]=0;
+		return;
+		}
+
+	for(n=0;n<10;n++)
+		{
+		m=num % 10;num/=10;
+		mem_cad[25-n]=48+m;
+		}
+
+	mem_cad[26]=0;
+
+	n=0;m=16;
 
 	while(mem_cad[m]=='0') m++;
 
@@ -184,23 +218,18 @@ int n,m;
 void s_printf(char *format,...)
 {
  va_list	opt;
- char *t;
- int pos=0;
 
- int val,n;
+ char out[2]=" ";
+
+ int val;
 
  char *s;
 
-// if(!verbose) return;
-
- if(mem_log>(char *) 0x13770000) return;
-
- t=mem_log;
  va_start(opt, format);
 
  while(format[0])
 	{
-	if(format[0]!='%') {*mem_log++=*format++;pos++;}
+	if(format[0]!='%') {out[0]=*format++;os_puts(out);}
 	else
 		{
 		format++;
@@ -210,24 +239,29 @@ void s_printf(char *format,...)
 			case 'i':
 				val=va_arg(opt,int);
 				int_char(val);
-				n=strlen(mem_cad);
-				memcpy(mem_log,mem_cad,n);
-				mem_log+=n;pos+=n;
+				
+				os_puts(mem_cad);
+				
+				break;
+
+			case 'u':
+				val=va_arg(opt, unsigned);
+				uint_char(val);
+				
+				os_puts(mem_cad);
+				
 				break;
 
 			case 'x':
 				val=va_arg(opt,int);
                 hex_char((u32) val);
-				n=strlen(mem_cad);
-				memcpy(mem_log,mem_cad,n);
-				mem_log+=n;pos+=n;
+				os_puts(mem_cad);
+				
 				break;
 
 			case 's':
 				s=va_arg(opt,char *);
-			    n=strlen(s);
-				memcpy(mem_log,s,n);
-				mem_log+=n;pos+=n;
+				os_puts(s);
 				break;
 
 			}
@@ -238,17 +272,16 @@ void s_printf(char *format,...)
    
 	va_end(opt);
 
-	os_sync_after_write((void *) t, pos);
-	
 	
 }
 
 void log_status(char *s)
 {
 u32 status=ehci_readl( &ehci->regs->status);
-u32 statusp=ehci_readl(&ehci->regs->port_status[0]);
+u32 statusp=ehci_readl(&ehci->regs->port_status[current_port]);
 
 s_printf("    log_status  (%s)\n",s);
+
 s_printf("    status: %x %s%s%s%s%s%s%s%s%s%s\n",
 		status,
 		(status & STS_ASS) ? " Async" : "",
@@ -274,7 +307,7 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun);
 static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop);
 
 // ehci driver has its own timeout.
-static s32 __USB_BlkMsgTimeout(usbstorage_handle *dev, u8 bEndpoint, u16 wLength, void *rpData)
+static s32 __USB_BlkMsgTimeout(usbstorage_handle *dev, u8 bEndpoint, u32 wLength, void *rpData)
 {
 	return USB_WriteBlkMsg(dev->usb_fd, bEndpoint, wLength, rpData);
 }
@@ -283,6 +316,8 @@ static s32 __USB_CtrlMsgTimeout(usbstorage_handle *dev, u8 bmRequestType, u8 bmR
 {
 	return USB_WriteCtrlMsg(dev->usb_fd, bmRequestType, bmRequest, wValue, wIndex, wLength, rpData);
 }
+
+
 
 static s32 __send_cbw(usbstorage_handle *dev, u8 lun, u32 len, u8 flags, const u8 *cb, u8 cbLen)
 {
@@ -297,6 +332,7 @@ static s32 __send_cbw(usbstorage_handle *dev, u8 lun, u32 len, u8 flags, const u
 	((u32*)dev->buffer)[2]=cpu_to_le32(len);
 	dev->buffer[12] = flags;
 	dev->buffer[13] = lun;
+
 	// linux usb/storage/protocol.c seems to say only difference is padding
         // and fixed cw size
         if(dev->ata_protocol)
@@ -314,18 +350,21 @@ static s32 __send_cbw(usbstorage_handle *dev, u8 lun, u32 len, u8 flags, const u
 	return retval;
 }
 
+
 static s32 __read_csw(usbstorage_handle *dev, u8 *status, u32 *dataResidue)
 {
 	s32 retval = USBSTORAGE_OK;
 	u32 signature, tag, _dataResidue, _status;
 
+	
 	memset(dev->buffer, 0xff, CSW_SIZE);
-
+	
 	retval = __USB_BlkMsgTimeout(dev, dev->ep_in, CSW_SIZE, dev->buffer);
         //print_hex_dump_bytes("csv resp:",DUMP_PREFIX_OFFSET,dev->buffer,CSW_SIZE);
+	
 
 	if(retval >= 0 && retval != CSW_SIZE) return USBSTORAGE_ESHORTREAD;
-	else if(retval < 0) return retval;
+	if(retval < 0) return retval;
 
 	signature = le32_to_cpu(((u32*)dev->buffer)[0]);
 	tag = le32_to_cpu(((u32*)dev->buffer)[1]);
@@ -343,7 +382,9 @@ static s32 __read_csw(usbstorage_handle *dev, u8 *status, u32 *dataResidue)
 		*status = _status;
 
 	if(tag != dev->tag) return USBSTORAGE_ETAG;
-	dev->tag++;
+
+	dev->tag=((dev->tag+2) & 0xffff) | (dev->tag & 0xffff0000);
+	//dev->tag++;
 
 	return USBSTORAGE_OK;
 }
@@ -351,6 +392,7 @@ static s32 __read_csw(usbstorage_handle *dev, u8 *status, u32 *dataResidue)
 extern u32 usb_timeout;
 
 static int is_read_write=0;
+
 
 static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, u8 cbLen, u8 write, u8 *_status, u32 *_dataResidue, s8 retries)
 {
@@ -364,93 +406,78 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	u8 *buffer2=buffer;
 	u32 len2=len;
 
+	int retries2=0;
+	int t;
+
+
 //	s8 retries = USBSTORAGE_CYCLE_RETRIES + 1;
+	
+	unplug_device=0;
+
 
 	do
 	{
-
-	//pi if(retval==-ENODEV) {unplug_device=1;return -ENODEV;}
 	
+//	if(unplug_device) {return -ENODEV;}
+	if(retval==-ETIMEDOUT || retval==-ENODEV) {unplug_device=1;break;}
 	
 
-    if(retval < 0)
+    if(retval < 0 /*&& retval!=USBSTORAGE_ESTATUS*/)
 		{
-		u8 conf;
-		int old_usb_timeout,h_flag;
-       /* retval=__usbstorage_reset(dev,0);// WARNING! you cannot perform here a hardware reset
-	   */
-	  
-        ehci_msleep(10);
-		pstatus = ehci_readl(&ehci->regs->port_status[dev->usb_fd->port]);
 
-		// device unplugged
-		if (/*!(PORT_CONNECT & status)*/ (pstatus & 0x3901)!=0x1001) 
-			{
-			unplug_device=1;
-			
-			return -ENODEV;
-			}
-        h_flag=handshake_mode;
-		handshake_mode=1;
-		old_usb_timeout=usb_timeout;
-		usb_timeout=200*1000;
-		retval = USB_ClearHalt(dev->usb_fd, dev->ep_in);
-		if(retval >=0)
-			retval = USB_ClearHalt(dev->usb_fd, dev->ep_out);
-		if(retval >=0)
-			retval=USB_GetConfiguration(dev->usb_fd, &conf);
-		handshake_mode=h_flag;
-		usb_timeout=old_usb_timeout;
-
-		ehci_msleep(60);
-		pstatus = ehci_readl(&ehci->regs->port_status[dev->usb_fd->port]);
+		retval=__usbstorage_reset(dev,0);
+  
 		
-		// device unplugged
-		if (/*!(PORT_CONNECT & status)*/(pstatus & 0x3901)!=0x1001) 
-			{
-			unplug_device=1;
-			
-			return -ENODEV;
-			}
-
+		if(retval >=0) ehci_msleep(5); else ehci_msleep(60);
+		pstatus = ehci_readl(&ehci->regs->port_status[current_port]);
 		
+		retries2++;
+		if(retval<0)
+			{
+			if(retries2>2) {unplug_device=1;break;} else {ehci_msleep(10);continue;}
+			} else retries2=0;
 
 		/////
 
 		//if(retval==-ENODEV) {unplug_device=1;return -ENODEV;}
 		}
 	retries--;
-	if(retval<0) continue; // nuevo
+	//if(retval<0) continue; // nuevo
 
 	buffer=buffer2;
 	len=len2;
-
+    
 		if(write)
 		{
-
+			t=usb_timeout;
+			usb_timeout=200*1000;
+          
 			retval = __send_cbw(dev, lun, len, CBW_OUT, cb, cbLen);
+		
+			usb_timeout=t;
+
+			if(retval==-ETIMEDOUT || retval==-ENODEV)
+				break;
+
 			if(retval < 0)
 				continue;//reset+retry
+			
 			while(len > 0)
 			{
-                thisLen=len;
+                thisLen=len; 
+				
 				retval = __USB_BlkMsgTimeout(dev, dev->ep_out, thisLen, buffer);
-           
-		        /*
-				pi
-				if(retval==-ENODEV || retval==-ETIMEDOUT) break;
 
-				if(retval < 0)
-					continue;//reset+retry
+				if(retval==-ETIMEDOUT || retval==-ENODEV) break;
 
-				*/
-				if(retval<0) break; //pi
+				if(retval<0) { retval = USBSTORAGE_EDATARESIDUE;break;}
 
-				if(retval != thisLen && len > 0)
+				if(retval != thisLen && len>0)
 				{
-					retval = USBSTORAGE_EDATARESIDUE;
-					break; // pi continue;//reset+retry
+					retval = USBSTORAGE_EDATARESIDUE;	
+					break;
 				}
+				
 				len -= retval;
 				buffer += retval;
 			}
@@ -460,43 +487,99 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 		}
 		else
 		{
+			t=usb_timeout;
+			usb_timeout=200*1000;
+
 			retval = __send_cbw(dev, lun, len, CBW_IN, cb, cbLen);
+           
+			usb_timeout=t;
+		
+
+			#ifdef MEM_PRINT
+			if(retval<0)
+				{
+				s_printf("__send_cbw ret %i\n", retval);
+				log_status("_send_cbw");
+				}
+			#endif
+
+			if(retval==-ETIMEDOUT || retval==-ENODEV)
+				break;
 
 			if(retval < 0)
 				continue; //reset+retry
+            
 			while(len > 0)
 			{
-                thisLen=len;
+                thisLen=len; //if(thisLen>8192) thisLen=8192;
 				
 				retval = __USB_BlkMsgTimeout(dev, dev->ep_in, thisLen, buffer);
-				
-				/*
-				pi
-				if(retval==-ENODEV || retval==-ETIMEDOUT) break;
-				
-				if(retval < 0)
-					continue; //reset+retry
-                                //hexdump(buffer,retval);
-								*/
-				if(retval<0) break; //pi
+
+				#ifdef MEM_PRINT
+				if(retval<0)
+					{
+					s_printf("__USB_BlkMsgTimeout %i\n", retval);
+					log_status("__USB_BlkMsgTimeout");
+					}
+				#endif
+			
+				if(retval==-ETIMEDOUT || retval==-ENODEV) break;
+				if(retval<0) { retval = USBSTORAGE_EDATARESIDUE;break;}
                
-				len -= retval;
-				buffer += retval;
+				
 
 				if(retval != thisLen)
                                 {
-                                        retval = -1;
-                                        break; // pi continue; //reset+retry
+								retval = USBSTORAGE_EDATARESIDUE;
+								break;
                                 }
+				
+				len -= retval;
+				buffer += retval;
 			}
 
 			if(retval < 0)
 				continue;
 		}
 
+		t=usb_timeout;
+		usb_timeout=200*1000;
+
 		retval = __read_csw(dev, &status, &dataResidue);
+
+		#ifdef MEM_PRINT
+		if(retval<0)
+			{
+			s_printf("__read_csw %i\n", retval);
+			log_status("__read_csw");
+			}
+		#endif
+
+		if(retval==-ENODEV) break;
+
+		if(retval<0)
+			{
+			USB_ClearHalt(dev->usb_fd, dev->ep_in);
+			set_toggle(dev->usb_fd, dev->ep_in,0);
+			
+			retval = __read_csw(dev, &status, &dataResidue);
+			}
+
+		usb_timeout=t;
+
+		if(retval==-ETIMEDOUT || retval==-ENODEV) break;
+
+		if(dataResidue && is_read_write)
+		{
+			status=1;
+		}
+
 		
-		if(retval>=0 && is_read_write!=0 && status!=0) retval = USBSTORAGE_ESTATUS; // if read/write bad status repeat the read/write
+		if(retval>=0 && is_read_write!=0 && status!=0) 
+		{
+			retval = USBSTORAGE_ESTATUS; // if read/write bad status repeat the read/write
+		}
+
 
 		if(retval < 0)
 			continue;
@@ -505,15 +588,11 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 	} while(retval < 0 && retries > 0);
 
     // force unplug
-	if(retval < 0 && retries <= 0 && handshake_mode==0) {unplug_device=1;return retval;/*-ENODEV*/;}
+	if(retval < 0) {unplug_device=1;}
 
-/*	if(retval < 0 && retval != USBSTORAGE_ETIMEDOUT)
-	{
-		if(__usbstorage_reset(dev,0) == USBSTORAGE_ETIMEDOUT)
-			retval = USBSTORAGE_ETIMEDOUT;
-	}
-*/
+
 	if(retval>=0) unplug_device=0;
+
 
 	if(_status != NULL)
 		*_status = status;
@@ -540,9 +619,7 @@ static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop
 	retval = __cycle(dev, lun, NULL, 0, cmd, 6, 0, &status, NULL, USBSTORAGE_CYCLE_RETRIES);
 //	if(retval < 0) goto error;
 
-/*	
-	if(status == SCSI_SENSE_NOT_READY || status == SCSI_SENSE_MEDIUM_ERROR || status == SCSI_SENSE_HARDWARE_ERROR) 
-					retval = USBSTORAGE_ESENSE;*/
+
 //error:
 	return retval;
 	#else
@@ -555,7 +632,7 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 {
 	s32 retval;
 	u8 cmd[16];
-	u8 *sense= USB_Alloc(SCSI_SENSE_REPLY_SIZE);
+	u8 *sense= ((u8 *)dev->buffer)+2048;//USB_Alloc(SCSI_SENSE_REPLY_SIZE);
 	u8 status = 0;
 	memset(cmd, 0, sizeof(cmd));
 	cmd[0] = SCSI_TEST_UNIT_READY;
@@ -563,27 +640,19 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 
 	if(!sense) return -ENOMEM;
     
-
-
-/*		for(n=0;n<5;n++)
-			{*/
 			
 			retval = __cycle(dev, lun, NULL, 0, cmd, 6, 1, &status, NULL, USBSTORAGE_CYCLE_RETRIES);
+			//retval = __cycle(dev, lun, NULL, 0, cmd, 1, 1, &status, NULL, USBSTORAGE_CYCLE_RETRIES);
 
 			#ifdef MEM_PRINT
 			s_printf("    SCSI_TEST_UNIT_READY ret %i\n", retval);
+
 			#endif
 		
-		//	if(retval==-ENODEV) goto error;
-
-			
-		//	if(retval==0) break;
-		//	}
-		
-		if(retval<0) goto error;
+	if(retval==-ENODEV) goto error;
 		
 
-	if(status != 0)
+	if(status != 0 || retval<0 )
 	{
 		cmd[0] = SCSI_REQUEST_SENSE;
 		cmd[1] = lun << 5;
@@ -609,177 +678,104 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
                         retval = USBSTORAGE_ESENSE;
 	}
 error:
-        USB_Free(sense);
+       // USB_Free(sense);
 	return retval;
 }
 
-extern int handshake_us;
+
 
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 {
-	s32 retval;
+	s32 retval=-1;
 	u32 old_usb_timeout=usb_timeout; 
-	usb_timeout=1000*1000;
-    //int retry = hard_reset;
-    int retry = 0;  //first try soft reset
-	int h_mode=handshake_mode;
-	
-	int hard_reset_done=0;
+
+	usb_timeout=200*1000;
 
 	u32 status;
 	u8 conf;
-		//
- retry:
-	 handshake_mode=1;
-        if ( hard_reset==1 || (hard_reset==2 && retry>=1)){
-                
-				hard_reset_done=1;
-                #ifdef MEM_PRINT
-				s_printf("usbstorage hard reset retry: %i\n", retry);
-				
-				#endif
-                retval = ehci_reset_device(dev->usb_fd);
-				if(retval<0) 
-					{
-					ehci_msleep(100);
-					retval=ehci_reset_port2(dev->usb_fd->port);
-					if(retval<0)
-						{
-						ehci_msleep(100);
-						retval = ehci_reset_device(dev->usb_fd);
-						}
-					}
-
-				ehci_msleep(100);
-				
-				status = ehci_readl(&ehci->regs->port_status[dev->usb_fd->port]);
-
-				#ifdef MEM_PRINT
-				s_printf("usbstorage hard reset ret %i status: %x\n",retval, status);
-				
-				#endif
-				if (retval<0 && !(PORT_CONNECT & status)) 
-						{
-						handshake_mode=h_mode;
-                        unplug_device=1;
-						usb_timeout=old_usb_timeout;
-						return -ENODEV;
-						}
-				
-                if(retval < 0)
-                        goto end;
-				 handshake_mode=1;
-                // reset configuration
-				retval=USB_GetConfiguration(dev->usb_fd, &conf);
-				#ifdef MEM_PRINT
-				s_printf("usbstorage hard reset: GetConfiguration ret %i\n",retval);
-				#endif
-                if(retval < 0) goto end;
-
-				retval=USB_SetConfiguration(dev->usb_fd, dev->configuration);
-				#ifdef MEM_PRINT
-				s_printf("usbstorage hard reset: SetConfiguration ret %i\n",retval);
-				#endif
-                if(retval < 0) goto end;
-                if(dev->altInterface != 0)
-					{ 
-					retval=USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface);
-                     
-					#ifdef MEM_PRINT
-					s_printf("usbstorage hard reset: SetAlternativeInterface %i\n",retval);
-					#endif
-				    if(retval < 0) goto end;
-					}
-				
-        }
-        debug_printf("usbstorage reset..\n");
+	
 
 	status = ehci_readl(&ehci->regs->port_status[dev->usb_fd->port]);
 
 	// device unplugged
 	if (!(PORT_CONNECT & status)) 
 		{
-		handshake_mode=h_mode;
         unplug_device=1;
 		usb_timeout=old_usb_timeout;
 		return -ENODEV;
 		}
-	 handshake_mode=1;
 	
-	usb_timeout=1000*1000;
-	//retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_RESET, 0, dev->interface, 0, NULL);
-	retval=0;
-
-
-	#ifdef MEM_PRINT
-	s_printf("usbstorage reset: Reset ret %i time: %i (us)\n",retval, handshake_us);
+	usb_timeout=200*1000;
 	
-	#endif
-
-    usb_timeout=200*1000;
-
-	/* FIXME?: some devices return -7004 here which definitely violates the usb ms protocol but they still seem to be working... */
-        if(retval < 0 && retval != -ETIMEDOUT)
-                goto end;
-				
-	/* gives device enough time to process the reset */
-	ehci_msleep(20);
 	
-
-        debug_printf("clear halt on bulk ep..\n");
-	
-	retval = USB_ClearHalt(dev->usb_fd, dev->ep_in);
-
-	#ifdef MEM_PRINT
-	s_printf("usbstorage reset: clearhalt in ret %i\n",retval);
-	
-	#endif
-	if(retval < 0)
-		goto end;
-	ehci_msleep(10);
-	retval = USB_ClearHalt(dev->usb_fd, dev->ep_out);
-
-	#ifdef MEM_PRINT
-	s_printf("usbstorage reset: clearhalt in ret %i\n",retval);
-	
-	#endif
-	if(retval < 0)
-		goto end;
-	//if(retval >=0)
-	ehci_msleep(10);
-	retval=USB_GetConfiguration(dev->usb_fd, &conf);
-	if(retval < 0)
-		goto end;
-    usb_timeout=1000*1000;
-	if(__lun != 16 && hard_reset && hard_reset_done)
+	if(use_reset_bulk)
 		{
-		if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
-        goto end;			
-		__mounted = 1;
-		
+		retval = __USB_CtrlMsgTimeout(dev, 
+		(USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE),
+		USBSTORAGE_RESET, 0, dev->interface, 0, NULL);
+	    #ifdef MEM_PRINT
+		s_printf("usbstorage reset: BULK RESET %i\n",retval);
+		#endif
+
+		/* gives device enough time to process the reset */
+		ehci_msleep(60);
+		}
+	else
+		{
+		USB_ClearHalt(dev->usb_fd, 0);
+		ehci_msleep(5);
+		retval=0;
 		}
 
-    unplug_device=0;
 
-    ehci_msleep(50);
+	
+	usb_timeout=200*1000;
+	/* FIXME?: some devices return -7004 here which definitely violates the usb ms protocol but they still seem to be working... */
+        if(retval < 0)
+				{
+				ehci_msleep(50);
+				USB_ClearHalt(dev->usb_fd, 0);
+				ehci_msleep(5);
+                goto end;
+				}
+	 			
+	
+	retval = USB_ClearHalt(dev->usb_fd, dev->ep_in);
+	ehci_msleep(5);
+
+	#ifdef MEM_PRINT
+	s_printf("usbstorage reset: clearhalt in ret %i\n",retval);
+	#endif
+
+	if(retval < 0)
+		goto end;
+	
+	retval = USB_ClearHalt(dev->usb_fd, dev->ep_out);
+	ehci_msleep(5);
+
+	#ifdef MEM_PRINT
+	s_printf("usbstorage reset: clearhalt out ret %i\n",retval);
+	#endif
+
+	if(retval < 0)
+		goto end;
+	
+	ehci_msleep(10);
+	retval=USB_GetConfiguration(dev->usb_fd, &conf); // for test it works
+
+	#ifdef MEM_PRINT
+	s_printf("usbstorage reset: USB_GetConfiguration ret %i\n",retval);
+	#endif
+
+	if(retval < 0)
+		goto end;
+
     usb_timeout=old_usb_timeout;
-	handshake_mode=h_mode;
 	return retval;
 
 end:
 	
-    if(retry < (5/*+15*(hard_reset==2)*/)){
-                
-				//if(hard_reset==2) ehci_msleep(1000);
-				//else 
-				ehci_msleep(100);
-           
-                retry ++;
-                goto retry;
-        }        
-    
 	usb_timeout=old_usb_timeout;
-	handshake_mode=h_mode;
 
 	unplug_device=1; // force the unplug method
 
@@ -800,30 +796,54 @@ for(n=0;n<size_b;n++)
 return 0;
 }
 
-static usb_devdesc _old_udd; // used for device change protection
 
 s32 try_status=0;
+
+struct _device_data
+{
+	u32 mounted;
+	u8 lun;
+	u8 use_maxlun;
+	u8  bDeviceClass;
+	u8  bDeviceSubClass;
+	u16 idVendor;
+	u16 idProduct;
+	u8  iManufacturer;
+	u8  iProduct;
+	u8  iSerialNumber;
+	u8 interface;
+	u8 ep_in;
+	u8 ep_out;
+	
+	u16 pad2;
+
+	
+} ATTRIBUTE_PACKED _old_device={0};
+
 
 s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 {
 	s32 retval = -1;
-	u8 conf;//,*max_lun = NULL;
+	u8 conf=0;//,*max_lun = NULL;
 	u32 iConf, iInterface, iEp;
 	static usb_devdesc udd;
 	usb_configurationdesc *ucd;
 	usb_interfacedesc *uid;
 	usb_endpointdesc *ued;
+
 	
 	__lun= 16; // select bad LUN
 
 	//max_lun = USB_Alloc(1);
 	//if(max_lun==NULL) return -ENOMEM;
-
-	memset(dev, 0, sizeof(*dev));
+	
+	//memset(dev, 0, sizeof(*dev));
 
 	dev->tag = TAG_START;
+
     dev->usb_fd = fd;
 
+	
     udd.configurations=NULL;
 
 	retval = USB_GetDescriptors(dev->usb_fd, &udd);
@@ -841,7 +861,13 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 	// test device changed without unmount (prevent device write corruption)
 	if(ums_init_done)
 		{
-		if(my_memcmp((void *) &_old_udd, (void *) &udd, sizeof(usb_devdesc)-4)) 
+		if(_old_device.bDeviceClass!=udd.bDeviceClass ||
+			_old_device.bDeviceSubClass!=udd.bDeviceSubClass ||
+			_old_device.idVendor!=udd.idVendor ||
+			_old_device.idProduct!=udd.idProduct ||
+			_old_device.iManufacturer!=udd.iManufacturer ||
+			_old_device.iProduct!=udd.iProduct ||
+			_old_device.iSerialNumber!=udd.iSerialNumber) 
 			{
 			//USB_Free(max_lun);
 			USB_FreeDescriptors(&udd);
@@ -853,11 +879,23 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 			}
 		}
 	
-	_old_udd= udd;
+	_old_device.bDeviceClass=udd.bDeviceClass;
+	_old_device.bDeviceSubClass=udd.bDeviceSubClass;
+	_old_device.idVendor=udd.idVendor;
+	_old_device.idProduct=udd.idProduct;
+	_old_device.iManufacturer=udd.iManufacturer;
+	_old_device.iProduct=udd.iProduct;
+	_old_device.iSerialNumber=udd.iSerialNumber;
+
+	
 	try_status=-128;
 	for(iConf = 0; iConf < udd.bNumConfigurations; iConf++)
 	{
 		ucd = &udd.configurations[iConf];		
+		#ifdef MEM_PRINT
+		s_printf("USBStorage_Open(): ucd %i Power %i mA\n",iConf, ((u32) ucd->bMaxPower)*2);
+				
+		#endif
 		for(iInterface = 0; iInterface < ucd->bNumInterfaces; iInterface++)
 		{
 			uid = &ucd->interfaces[iInterface];
@@ -887,15 +925,33 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 					if(ued->bmAttributes != USB_ENDPOINT_BULK)
 						continue;
 
-					if(ued->bEndpointAddress & USB_ENDPOINT_IN)
-						dev->ep_in = ued->bEndpointAddress;
+					if((ued->bEndpointAddress & USB_ENDPOINT_IN) && !dev->ep_in && ued->bEndpointAddress!=0)
+						{dev->ep_in = ued->bEndpointAddress;
+						#ifdef MEM_PRINT
+						s_printf("In Point: %i\n", (u32) ued->wMaxPacketSize);
+						#endif
+						}
 					else
-						dev->ep_out = ued->bEndpointAddress;
+						if(!dev->ep_out && ued->bEndpointAddress!=0)
+							{
+							dev->ep_out = ued->bEndpointAddress;
+							#ifdef MEM_PRINT
+							s_printf("Out Point: %i\n", (u32) ued->wMaxPacketSize);
+							#endif
+							}
 				}
 				if(dev->ep_in != 0 && dev->ep_out != 0)
 				{
+				#ifdef MEM_PRINT
+				s_printf("ep_in %x ep_out %x\n", (u32) dev->ep_in, (u32) dev->ep_out);
+				
+				#endif
+					_old_device.ep_in=dev->ep_in;
+					_old_device.ep_out=dev->ep_out;
+			
 					dev->configuration = ucd->bConfigurationValue;
 					dev->interface = uid->bInterfaceNumber;
+					_old_device.interface=dev->interface;
 					dev->altInterface = uid->bAlternateSetting;
 					
 					goto found;
@@ -966,7 +1022,7 @@ found:
 	#endif
 
 //usb_timeout=2000*1000;
-	if(conf != dev->configuration && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) // antes forzaba el cambio de configuracion
+	if(conf != dev->configuration && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) 
 		goto free_and_return;
 
 	try_status=-1203;
@@ -1017,20 +1073,23 @@ found:
 	//USB_ClearHalt(dev->usb_fd, dev->ep_out);
 
 	if(dev->buffer == NULL)
-		dev->buffer = USB_Alloc(MAX_TRANSFER_SIZE+16);
+		dev->buffer = (void *) ((((u32) USB_Alloc(MAX_TRANSFER_SIZE+32))+31) & ~31);
 	
 	if(dev->buffer == NULL) {retval = -ENOMEM;try_status=-1205;}
 	else retval = USBSTORAGE_OK;
 
 free_and_return:
 
-	//if(max_lun!=NULL) USB_Free(max_lun);
+
 
 	if(retval < 0)
 	{
+		/*
+		// Never free dev->buffer or destroy the dev info
 		if(dev->buffer != NULL)
 			USB_Free(dev->buffer);
 		memset(dev, 0, sizeof(*dev));
+		*/
 
 		#ifdef MEM_PRINT
 		s_printf("USBStorage_Open(): try_status %i\n",try_status);
@@ -1052,11 +1111,16 @@ void my_sprint(char *cad, char *s);
 
 s32 USBStorage_Close(usbstorage_handle *dev)
 {
-        if(dev->buffer != NULL)
-                USB_Free(dev->buffer);
-	memset(dev, 0, sizeof(*dev));
 
-	my_sprint("USBStorage_Close()", NULL);
+	// Never free dev->buffer or destroy the dev info
+
+        /*if(dev->buffer != NULL)
+                USB_Free(dev->buffer);
+		dev->buffer=NULL;
+		*/
+	//memset(dev, 0, sizeof(*dev));
+
+	//my_sprint("USBStorage_Close()", NULL);
 	return 0;
 }
 
@@ -1079,12 +1143,12 @@ s32 USBStorage_GetMaxLUN(usbstorage_handle *dev)
 s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 {
 	s32 retval;
-    int f=handshake_mode;
+   
 
 	if(lun >= dev->max_lun)
 		return -EINVAL;
 	usb_timeout=1000*1000;
-	handshake_mode=1;
+	
 
 	retval= __usbstorage_start_stop(dev, lun, 1);
 
@@ -1111,21 +1175,30 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	#endif
 ret:
 	usb_timeout=1000*1000;
-	handshake_mode=f;
+
 	return retval;
 }
 
 s32 USBStorage_Inquiry(usbstorage_handle *dev, u8 lun)
 {
+	int n;
 	s32 retval;
 	u8 cmd[] = {SCSI_INQUIRY, lun << 5,0,0,36,0};
-	u8 *response = USB_Alloc(36);
+	u8 *response = ((u8 *)dev->buffer)+2048; //USB_Alloc(36);
 
 	if(!response) return -ENOMEM;
+	for(n=0;n<2;n++)
+	{
+	
+
+	memset(response,0,36);
 
 	retval = __cycle(dev, lun, response, 36, cmd, 6, 0, NULL, NULL, USBSTORAGE_CYCLE_RETRIES);
-        //print_hex_dump_bytes("inquiry result:",DUMP_PREFIX_OFFSET,response,36);
-    USB_Free(response);
+	if(retval>=0) break;
+	
+	}
+  
+    //USB_Free(response);
 
 	return retval;
 }
@@ -1133,7 +1206,7 @@ s32 USBStorage_ReadCapacity(usbstorage_handle *dev, u8 lun, u32 *sector_size, u3
 {
 	s32 retval;
 	u8 cmd[] = {SCSI_READ_CAPACITY, lun << 5};
-	u8 *response = USB_Alloc(8);
+	u8 *response = ((u8 *)dev->buffer)+2048; //USB_Alloc(8);
         u32 val;
 	if(!response) return -ENOMEM;
 
@@ -1149,7 +1222,7 @@ s32 USBStorage_ReadCapacity(usbstorage_handle *dev, u8 lun, u32 *sector_size, u3
 			*sector_size = be32_to_cpu(val);
 		retval = USBSTORAGE_OK;
 	}
-        USB_Free(response);
+       // USB_Free(response);
 	return retval;
 }
 
@@ -1171,10 +1244,11 @@ static s32 __USBStorage_Read(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_s
 		n_sectors,
 		0
 		};
+
 	if(lun >= dev->max_lun || dev->sector_size[lun] == 0 || !dev)
 		return -EINVAL;
     is_read_write=1;
-	retval = __cycle(dev, lun, buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL, 6);
+	retval = __cycle(dev, lun, buffer, ((u32) n_sectors) * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL, 6);
 	is_read_write=0;
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
@@ -1197,11 +1271,12 @@ static s32 __USBStorage_Write(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_
 		n_sectors,
 		0
 		};
+
 	if(lun >= dev->max_lun || dev->sector_size[lun] == 0)
 		return -EINVAL;
 
 	is_read_write=1;
-	retval = __cycle(dev, lun, (u8 *)buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL,6);
+	retval = __cycle(dev, lun, (u8 *)buffer, ((u32) n_sectors )* dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL,6);
 	is_read_write=0;
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
@@ -1214,10 +1289,11 @@ u32 max_sectors=n_sectors;
 u32 sectors;
 s32 ret=-1;
 
-	if(n_sectors * dev->sector_size[lun]>65536) max_sectors= 65536/dev->sector_size[lun];
+	if(((u32) n_sectors) * dev->sector_size[lun]>160*1024) max_sectors= 160*1024/dev->sector_size[lun];
 
 	while(n_sectors>0)
 		{
+		
 		sectors=n_sectors>max_sectors ? max_sectors: n_sectors;
 		ret=__USBStorage_Read(dev, lun, sector, sectors, buffer);
 		if(ret<0) return ret;
@@ -1236,10 +1312,11 @@ u32 max_sectors=n_sectors;
 u32 sectors;
 s32 ret=-1;
 
-	if((n_sectors * dev->sector_size[lun])>65536) max_sectors=65536/dev->sector_size[lun];
+	if(((u32) n_sectors) * dev->sector_size[lun]>160*1024) max_sectors=160*1024/dev->sector_size[lun];
 
 	while(n_sectors>0)
 		{
+		
 		sectors=n_sectors>max_sectors ? max_sectors: n_sectors;
 		ret=__USBStorage_Write(dev, lun, sector, sectors, buffer);
 		if(ret<0) return ret;
@@ -1260,31 +1337,6 @@ This opens the first lun of the first usbstorage device found.
 
 
 
-/* perform 512 time the same read */
-s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
-{
-   s32 retval;
-   int i;
-   if(__mounted != 1)
-       return false;
-   
-   for(i=0;i<512;i++){
-           retval = USBStorage_Read(&__usbfd, __lun, sector, numSectors, buffer);
-           sector+=numSectors;
-           if(retval == USBSTORAGE_ETIMEDOUT)
-           {
-                   __mounted = 0;
-                   USBStorage_Close(&__usbfd);
-           }
-           if(retval < 0)
-                   return false;
-   }
-   return true;
-
-}
-
-
-
 // temp function before libfat is available */
 s32 USBStorage_Try_Device(struct ehci_device *fd)
 {
@@ -1297,23 +1349,65 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		__lun = 0;
 
 		try_status=-120;
+		swi_mload_led_on();
 		if(USBStorage_Open(&__usbfd, fd) < 0)
 			return -EINVAL;
-	  
-	/*
-       maxLun = USBStorage_GetMaxLUN(&__usbfd);
-       if(maxLun == USBSTORAGE_ETIMEDOUT)
-			{
-		    __mounted = 0;
-		    USBStorage_Close(&__usbfd);
-			return -EINVAL;
-			}
-*/
+	
 	 
 	maxLun= 1;
     __usbfd.max_lun = 1;  
 
 	j=0; 
+    
+	// fast re-mount
+	if(_old_device.mounted)
+	{
+		if(_old_device.use_maxlun)
+			{
+				__usbfd.max_lun = 0;
+				retval = __USB_CtrlMsgTimeout(&__usbfd, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), 
+							USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
+				if(retval < 0) 
+					{
+					__usbfd.max_lun = 1;
+					goto bad_mount;
+					} 
+				else {__usbfd.max_lun++;}
+
+				
+
+			}
+		j=_old_device.lun;
+
+		#ifdef MEM_PRINT
+		s_printf("Fast USBStorage_MountLUN %i#\n", j);
+		#endif
+        retval = USBStorage_MountLUN(&__usbfd, j);
+		#ifdef MEM_PRINT
+		s_printf("USBStorage_MountLUN: ret %i\n", retval);
+		#endif
+		if(retval == USBSTORAGE_ETIMEDOUT || retval==-ENODEV /*&& test_max_lun==0*/)
+           { 
+               USBStorage_Reset(&__usbfd);
+			   try_status=-121;
+			   __mounted = 0;
+               USBStorage_Close(&__usbfd); 
+			   return -EINVAL;
+            
+           }
+
+		if(retval < 0) goto bad_mount;
+		 
+        __mounted = 1;
+        __lun = j;
+		usb_timeout=1000*1000;
+		try_status=0;
+		swi_mload_led_off();
+        
+		return 0;
+	}
+	
+	_old_device.use_maxlun=0;
       //for(j = 0; j < maxLun; j++)
 	while(1)
        {
@@ -1327,7 +1421,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		   #endif
 
 		  
-           if(retval == USBSTORAGE_ETIMEDOUT /*&& test_max_lun==0*/)
+           if(retval == USBSTORAGE_ETIMEDOUT || retval==-ENODEV)
            { 
                USBStorage_Reset(&__usbfd);
 			   try_status=-121;
@@ -1347,7 +1441,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 						USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
 					if(retval < 0 )
 						__usbfd.max_lun = 1;
-					else __usbfd.max_lun++;
+					else {__usbfd.max_lun++;_old_device.use_maxlun=1;}
 					maxLun = __usbfd.max_lun;
 
 					 #ifdef MEM_PRINT
@@ -1361,14 +1455,19 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 				continue;
 				}
 
+		  _old_device.mounted=1;
+		  _old_device.lun=j;
+
            __vid=fd->desc.idVendor;
            __pid=fd->desc.idProduct;
            __mounted = 1;
            __lun = j;
 		   usb_timeout=1000*1000;
 		   try_status=0;
+		   swi_mload_led_off();
            return 0;
        }
+bad_mount:
 	   try_status=-122;
 	  
 	   USBStorage_Reset(&__usbfd);
@@ -1396,49 +1495,68 @@ if(!ums_init_done) return;
     __mounted=0;
 	ums_init_done=0;
 	unplug_device=0;
+	memset(&_old_device,0,sizeof(_old_device));
 }
 
 
 s32 USBStorage_Init(void)
 {
-        int i;
-		u32 status;
-		int ret;
+	int i;
+	u32 status;
+	int ret;
 
-        debug_printf("usbstorage init %d\n", ums_init_done);
-        if(ums_init_done)
+    //debug_printf("usbstorage init %d\n", ums_init_done);
+    
+	if(ums_init_done)
           return 0;
+	
+	ehci_writel (0, &ehci->regs->intr_enable);
+	ehci_int_passive_callback(NULL);  // interrupt port changes detection
 
-	 try_status=-1;      
+	
+
+	try_status=-1; 
+    unplug_device=1;
+	__mounted=0;
 
 #ifdef MEM_PRINT
 s_printf("\n***************************************************\nUSBStorage_Init()\n***************************************************\n\n");
 
-#endif
+#endif		
+	
 
         for(i = 0;i<1/*ehci->num_port*/; i++){
                 struct ehci_device *dev = &ehci->devices[i];
-				
-				dev->port=i;
 
+				
+
+				dev->port=i;
+				current_port=i;
                 if(dev->id != 0)
 					{
-		
-					ret=ehci_reset_port(0);
-					status=ehci_readl(&ehci->regs->port_status[0]);
+		            unplug_device=1;
+					
 
-					if(ret<0 || (status & 0x3905)!=0x1005)
+					ret=ehci_reset_port(current_port);
+					ehci_msleep(20);
+					status=ehci_readl(&ehci->regs->port_status[current_port]);
+
+					if(ret<0 || (status & 0x3105)!=0x1005)
 						{
-						ret=ehci_reset_port2(0);
-						status=ehci_readl(&ehci->regs->port_status[0]);
+						ret=ehci_reset_port2(current_port);
+						ehci_msleep(20);
+						status=ehci_readl(&ehci->regs->port_status[current_port]);
 						}
 				
-					handshake_mode=1;
-					if(ret>=0 && (status & 0x3905)==0x1005 )
+				
+					if(ret>=0 && (status & 0x3105)==0x1005 )
 						{
-
+						
 						if(USBStorage_Try_Device(dev)==0) 
-							{first_access=true;handshake_mode=0;ums_init_done = 1;unplug_device=0;
+							{
+							ums_init_done = 1;unplug_device=0;
+							ehci_int_passive_callback(passive_callback_hand);  // interrupt port changes detection
+							ehci_writel (STS_PCD, &ehci->regs->intr_enable);
 							#ifdef MEM_PRINT
 							s_printf("USBStorage_Init() Ok\n");
 							
@@ -1450,10 +1568,8 @@ s_printf("\n***************************************************\nUSBStorage_Init
 					}
 				else
 					{
-				   
-
-                    handshake_mode=1;
-					status = ehci_readl(&ehci->regs->port_status[0]);
+				    unplug_device=1;
+					status = ehci_readl(&ehci->regs->port_status[current_port]);
 
 					#ifdef MEM_PRINT
 					s_printf("USBStorage_Init() status %x\n",status);
@@ -1462,27 +1578,30 @@ s_printf("\n***************************************************\nUSBStorage_Init
 					
 					if(status & 1)
 						{
-						ret=ehci_reset_port2(0);
-						status=ehci_readl(&ehci->regs->port_status[0]);
+						ret=ehci_reset_port2(current_port);
+						ehci_msleep(20);
+						status=ehci_readl(&ehci->regs->port_status[current_port]);
 
-							if(ret<0 || (status & 0x3905)!=0x1005)
+							if(ret<0 || (status & 0x3105)!=0x1005)
 								{
-								ehci_msleep(100);
-								ret=ehci_reset_port(0);
-								//status=ehci_readl(&ehci->regs->port_status[0]);
+								
+								ret=ehci_reset_port(current_port);
+								//status=ehci_readl(&ehci->regs->port_status[current_port]);
 								}
 						
 
-						return -101;
+						try_status=-101;
 						}
 					else 
 						{
-						return -100;
+						if(try_status==-1)  try_status=-100;
 						}
 					}
         }
 
-	
+	    ehci_int_passive_callback(passive_callback_hand);  // interrupt port changes detection
+		ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+
         return try_status;
 }
 
@@ -1499,51 +1618,186 @@ if(sector_size) *sector_size = 0;
    return 0;
 }
 
+int fast_remount(void)
+{
+int retval;
+u8 conf=0;
+usb_devdesc udd;
+
+if(!ums_init_done) return -1009;
+
+	swi_mload_led_on();	
+	retval=0;
+
+	__lun=16;
+
+	usb_timeout=200*1000;
+
+	udd.configurations=NULL;
+	retval = USB_GetDescriptors(__usbfd.usb_fd, &udd);
+
+	
+	if(_old_device.bDeviceClass!=udd.bDeviceClass ||
+		_old_device.bDeviceSubClass!=udd.bDeviceSubClass ||
+		_old_device.idVendor!=udd.idVendor ||
+		_old_device.idProduct!=udd.idProduct ||
+		_old_device.iManufacturer!=udd.iManufacturer ||
+		_old_device.iProduct!=udd.iProduct ||
+		_old_device.iSerialNumber!=udd.iSerialNumber) 
+		{
+		
+		USB_FreeDescriptors(&udd);
+		#ifdef MEM_PRINT
+		s_printf("USBStorage_Open(): device changed!!!\n");
+		
+		#endif
+		return -1009;
+		}
+		
+
+	USB_FreeDescriptors(&udd);
+
+	if(USB_GetConfiguration(__usbfd.usb_fd, &conf) <0) return -1000;
+
+	if(conf != __usbfd.configuration && USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
+		
+	if(__usbfd.altInterface != 0 && USB_SetAlternativeInterface(__usbfd.usb_fd, __usbfd.interface, __usbfd.altInterface) < 0) return -1002;
+	
+	if( __usbstorage_reset(&__usbfd,0)<0) return -1003;
+			
+	usb_timeout=1000*1000;
+
+	if(_old_device.use_maxlun)
+		{
+		__usbfd.max_lun = 0;
+		retval = __USB_CtrlMsgTimeout(&__usbfd, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), 
+							USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
+		if(retval < 0) 
+			{
+			__usbfd.max_lun = 1;
+			__usbstorage_reset(&__usbfd,0);
+			return -1004;
+			} 
+		else {__usbfd.max_lun++;}
+
+				
+		}
+	//retval = USBStorage_MountLUN(&__usbfd, _old_device.lun);
+
+	usb_timeout=1000*1000;
+	retval = __usbstorage_clearerrors(&__usbfd, _old_device.lun);
+	#ifdef MEM_PRINT
+	   s_printf(" Clear error ret %i\n",retval);
+	#endif
+
+	if(retval<0) return -1005;
+	
+
+	retval = USBStorage_Inquiry(&__usbfd, _old_device.lun);
+	#ifdef MEM_PRINT
+	   s_printf("    Inquiry ret %i\n",retval);
+	#endif
+	
+ 
+	if(retval<0) return -1006;
+
+	__lun=_old_device.lun;
+	__mounted=1;
+	
+
+return retval;
+}
+
 int unplug_procedure(void)
 {
 int retval=1;
+u32 status;
+
 
  if(unplug_device!=0 )
 			{
-	        if(__usbfd.buffer == NULL)
+	
+			// unplug detection method
+
+			status=ehci_readl(&ehci->regs->port_status[current_port]);
+			if(!(status & 1))
 				{
-				
-				__usbfd.buffer = USB_Alloc(MAX_TRANSFER_SIZE+16);
-				
+				int n;
+				for(n=0;n<3;n++)
+					{
+					swi_mload_led_on();ehci_msleep(100);swi_mload_led_off();ehci_msleep(100);
+					}
+				ehci_msleep(500);
+
+				return 1;
 				}
-				if(__mounted!=0)
-					__usbstorage_reset(&__usbfd,0); // perform hardware reset
 
-               unplug_device=1;
+			ehci_writel (0, &ehci->regs->intr_enable); // disable interrupts
+			ehci_int_passive_callback(NULL);
 
-			   if(unplug_device!=0 || __mounted==0)
+		
+			if(1)
 				{
 				 int ret;
-				 u32 status;
-				 ret=ehci_reset_port2(0);
+				 
+				
+				 ret=ehci_reset_port2(current_port);
+				 //if(ret<0) ehci_reset_port(current_port);
+
+				 if(ret<0) ret=ehci_reset_port2(current_port);
+				 
+
 				 ehci_msleep(60);
+                 status=ehci_readl(&ehci->regs->port_status[current_port]);
 
-				 status=ehci_readl(&ehci->regs->port_status[0]);
+				 #ifdef MEM_PRINT
+				
+				 s_printf("Unplug: reset_port ret %i port status %x\n", ret, status);
+				
+				 #endif
 
-				 /*if(ret<0 || (status & 0x3905)!=0x1005 )
+				 unplug_device=1;
+
+				 if(ret>=0 && (status & 0x3105)==0x1005 )	
 					{
-					ret=ehci_reset_port(0);
-					ehci_msleep(60);
 					
-					status=ehci_readl(&ehci->regs->port_status[0]);
-					}
-					*/
-
-				 if(ret>=0 && (status & 0x3905)==0x1005 )	
-					{
 			
-					if(__usbfd.buffer != NULL)
+					/*if(__usbfd.buffer != NULL)
 						USB_Free(__usbfd.buffer);
-					__usbfd.buffer= NULL;
+					__usbfd.buffer= NULL;*/
+					__mounted=0;unplug_device=0;
+					USBStorage_Close(&__usbfd);
 
-					handshake_mode=1;
-					if(USBStorage_Try_Device(&ehci->devices[0])==0) {retval=0;unplug_device=0;}
-					handshake_mode=0;
+							
+					retval=fast_remount();
+					usb_timeout=1000*1000;
+					if(retval>=0)
+						{
+						#ifdef MEM_PRINT
+				
+						s_printf("fast_remount OK\n");
+				
+						#endif
+				
+						swi_mload_led_off();
+						retval=0;unplug_device=0;__mounted=1;
+						ehci_int_passive_callback(passive_callback_hand);  // interrupt port changes detection
+						ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+						}
+					else {
+						  unplug_device=1;
+						  #ifdef MEM_PRINT
+				
+						s_printf("fast_remount KO ret %i\n", ret);
+				
+						#endif
+						 __mounted=0;
+						  retval=1; swi_mload_led_off();ehci_msleep(100);
+						  ehci_int_passive_callback(passive_callback_hand);
+						  ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+						  }
+					//if(USBStorage_Try_Device(&ehci->devices[0])==0) {retval=0;unplug_device=0;} else unplug_device=1;
+				
 					}
 				}
 			ehci_msleep(100);
@@ -1554,51 +1808,69 @@ return retval;
 
 int is_watchdog_read_sector=0;
 
+
+extern int test_mode;
+
 s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 {
    s32 retval=0;
    int retry;
-  /*
-   if(__mounted != 1)
+ 
+    
+
+   if(test_mode && unplug_device>=2) 
 		{
-		if(unplug_procedure()) 
-			return false;
-	    }
-   */
+		 unplug_device=1;
+		return false;
+		}
+
+
    for(retry=0;retry<4;retry++)
 	{
-     if(!is_watchdog_read_sector) retry=0; // infinite loop
-	//ehci_usleep(100);
-	 if(!unplug_procedure())
+    if(!is_watchdog_read_sector) retry=0; // infinite loop except for watchdog
+
+
+	if(!unplug_procedure())
 		{
-		 retval=0;
+		retval=0;
+		}
+
+	if(test_mode && unplug_device==3) break;
+	
+	if(retval<0 || __mounted != 1)
+		{
+		unplug_device=1;
+		retval=-1;
 		}
 	
-		if(retval<0 || __mounted != 1)
-		   {
-		   unplug_device=1;
-		   retval=-1;
-		   }
-		 if(unplug_device!=0 ) continue;
-		 //if(retval==-ENODEV) return 0;
-		 usb_timeout=1000*1000;
-	    if(retval >= 0)
-		   retval = USBStorage_Read(&__usbfd, __lun, sector, numSectors, buffer);
-		usb_timeout=1000*1000;
-		if(retval<0) unplug_device=1;
+	if(unplug_device!=0 ) continue;
+	
+	usb_timeout=1000*1000;
+	
+	if(retval >= 0)
+		{
+		ehci_writel (0, &ehci->regs->intr_enable);
+		ehci_int_passive_callback(NULL);
+		
+			retval = USBStorage_Read(&__usbfd, __lun, sector, numSectors, buffer);
 
-		if(unplug_device!=0 || __mounted != 1) continue;
-		 //if(retval==-ENODEV) return 0;
-		if(retval>=0) break;
+		ehci_int_passive_callback(passive_callback_hand);
+		ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+		}
 
+			
+	usb_timeout=1000*1000;
+
+	if(retval<0) unplug_device=1;
+		
+	if(test_mode && unplug_device!=0 ) {retval=-1;/*__mounted=0;*/break;}
+
+	if(unplug_device!=0 || __mounted != 1) continue;
+		
+	if(retval>=0) break;
 		
 	}
 
-  /* if(retval == USBSTORAGE_ETIMEDOUT)
-   {
-       __mounted = 0;
-       USBStorage_Close(&__usbfd);
-   }*/
    if(retval < 0)
        return false;
    return true;
@@ -1607,50 +1879,43 @@ s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer)
 
 s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer)
 {
-   s32 retval=0;
-   int retry;
-/*
-  if(__mounted != 1)
-		{
-		if(unplug_procedure()) 
-			return false;
-	    }*/
+	s32 retval=0;
 
-    for(retry=0;retry<4;retry++)
-	{
-	 retry=0; // infinite loop
-	
-	//ehci_usleep(100);
-
-	  if(!unplug_procedure())
+	while(1)
 		{
-		 retval=0;
-		}
+
+		if(!unplug_procedure())
+			{
+			retval=0;
+			}
 
 		if(retval<0 || __mounted != 1)
-		   {
-		   unplug_device=1;
-		   retval=-1;
-		   }
-		  if(unplug_device!=0 ) continue;
-		 usb_timeout=1000*1000;
+			{
+			unplug_device=1;
+			retval=-1;
+			}
+
+		if(unplug_device!=0 ) continue;
+		
+		usb_timeout=1000*1000;
+
 	    if(retval >=0)
-		   retval = USBStorage_Write(&__usbfd, __lun, sector, numSectors, buffer);
+			{
+			ehci_writel (0, &ehci->regs->intr_enable);
+			ehci_int_passive_callback(NULL);
+
+			retval = USBStorage_Write(&__usbfd, __lun, sector, numSectors, buffer);
+
+			ehci_int_passive_callback(passive_callback_hand);
+			ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+			}
+
 		usb_timeout=1000*1000;
 		if(retval<0) unplug_device=1;
 
 		if(unplug_device!=0 ) continue;
 		if(retval>=0) break;
-	}
-
-
-  /* retval = USBStorage_Write(&__usbfd, __lun, sector, numSectors, buffer);
-   if(retval == USBSTORAGE_ETIMEDOUT)
-   {
-       __mounted = 0;
-       USBStorage_Close(&__usbfd);
-   }
-   */
+		}
 
 
    if(retval < 0)

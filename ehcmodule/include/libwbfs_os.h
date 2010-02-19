@@ -10,8 +10,8 @@ void *WBFS_Alloc(int size);
 void WBFS_Free(void *ptr);
 void my_sprint(char *cad, char *s);
 
-#define wbfs_fatal(x) do{debug_printf("\nwbfs panic:%s\n\n",x); my_sprint("wbfs panic",x); while(1) ehci_msleep(100);}while(0)
-#define wbfs_error(x) do{debug_printf("\nwbfs error:%s\n\n",x); my_sprint("wbfs error",x);}while(0)
+#define wbfs_fatal(x) do{os_puts("wbfs panic ");os_puts(x);os_puts("\n"); while(1) ehci_msleep(100);}while(0)
+#define wbfs_error(x) do{os_puts("wbfs error ");os_puts(x);;os_puts("\n");}while(0)
 #define wbfs_malloc(x) WBFS_Alloc(x)
 #define wbfs_free(x) WBFS_Free(x)
 #define wbfs_ioalloc(x) WBFS_Alloc(x)

@@ -172,7 +172,7 @@ void USB_FreeDescriptors(usb_devdesc *udd)
 }
 
 
-s32 USB_WriteBlkMsg(struct ehci_device *fd,u8 bEndpoint,u16 wLength,void *rpData)
+s32 USB_WriteBlkMsg(struct ehci_device *fd,u8 bEndpoint,u32 wLength,void *rpData)
 {
 	return ehci_bulk_message(fd,bEndpoint,wLength,rpData);
 }
@@ -212,6 +212,11 @@ s32 USB_SetAlternativeInterface(struct ehci_device *fd, u8 interface, u8 alterna
 }
 s32 USB_ClearHalt(struct ehci_device *fd, u8 endpoint)
 {
-	return __usb_control_message(fd, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_STANDARD | USB_CTRLTYPE_REC_ENDPOINT),
+s32 ret;
+
+	ret=__usb_control_message(fd, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_STANDARD | USB_CTRLTYPE_REC_ENDPOINT),
                                      USB_REQ_CLEARFEATURE, USB_FEATURE_ENDPOINT_HALT, endpoint, 0, NULL, NULL, NULL);
+			
+
+	return ret;
 }

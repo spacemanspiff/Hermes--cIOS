@@ -35,13 +35,9 @@
  *
  */
 
-	// DIP values
-	//.EQU	ios_thread_arg, 3
-	//.EQU	ios_thread_priority,	0x54
-	// OH0 values
 	.EQU	ios_thread_arg, 4
-	.EQU	ios_thread_priority,	0x78 //0x48
-	.EQU	ios_thread_stacksize, 0x8000
+	.EQU	ios_thread_priority,	0x54 //0x48
+	.EQU	ios_thread_stacksize, 0x3000
 	
 
 _start:	
@@ -52,6 +48,104 @@ _start:
 	ldr		r3, =main
 	bx		r3
 
+
+	.align 4
+	.code 32
+        .global direct_syscall
+direct_syscall:
+	ldr     r12, =syscall_base
+	ldr	r12, [r12]
+	nop
+	ldr     r12, [r12,r11,lsl#2]
+	nop
+	bx	r12
+
+	.align 4
+	.code 32
+	.global direct_os_sync_before_read
+direct_os_sync_before_read:
+
+
+	mov     r11, #0x3f
+	b	direct_syscall
+	
+	.align 4
+	.code 32
+	.global direct_os_sync_after_write
+direct_os_sync_after_write:
+
+	
+	mov     r11, #0x40
+	b	direct_syscall
+	
+	.global ic_invalidate
+ic_invalidate:
+	mov		r0, #0
+	mcr		p15, 0, r0, c7, c5, 0
+	bx		lr
+
+// bypass to interrupt vector
+
+	.align 4
+	.code 32
+
+	.global interrupt_vector
+interrupt_vector:
+	tst     r8, #0x10
+	beq     int_cont1
+
+	bic     r8, r8, #0x10 // disable next EHCI treatment
+
+	mov     r2, #0x10
+	str     r2, [r7]
+	nop
+	
+        mov     r2, sp
+	nop
+	ldr	sp, =_interrupt_stack
+	nop
+	
+	stmfd	sp!, {r1-r12,lr}
+	nop
+
+	bl	_ehci_vector_
+
+	ldmfd	sp!, {r1-r12,lr}
+	nop
+	mov     sp, r2
+
+	tst     r0, #0x1
+        beq     int_cont1
+
+	nop
+	mov	r0,#4
+	bl	int_send_device_message
+	
+	
+int_cont1:
+	tst     r8, #0x1
+	beq     patch2_timer_cont
+// int timer
+	.global patch1_timer
+patch1_timer:
+	ldr pc, =0xFFFF1E80
+	nop
+	.global patch2_timer_cont
+patch2_timer_cont:
+	ldr pc, =0xFFFF1E9C
+	nop
+
+	.global int_send_device_message
+int_send_device_message:
+	ldr pc, =0xFFFF1D44
+	nop
+
+_ehci_vector_:
+	
+	ldr	r2,=ehci_vector
+	bx	r2
+
+	
 	.align
 	.pool
 	
@@ -81,6 +175,8 @@ ios_thread_stack_start:
 	.space	ios_thread_stacksize
 	.global ios_thread_stack /* stack decrements from high address.. */
 ios_thread_stack:
+	.space 0x200
+_interrupt_stack:
 	
 	.section ".ios_info_table","ax",%progbits
 

@@ -62,9 +62,13 @@ s32 USBStorage_Read(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_sectors, u
 s32 USBStorage_Write(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_sectors, const u8 *buffer);
 s32 USBStorage_Inquiry(usbstorage_handle *dev, u8 lun);
 
+s32 USBStorage_Read_Sectors(u32 sector, u32 numSectors, void *buffer);
+s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer);
+
 #define DEVICE_TYPE_WII_USB (('W'<<24)|('U'<<16)|('S'<<8)|'B')
 
 s32 USBStorage_Try_Device(struct ehci_device *fd);
+
 
 #ifdef __cplusplus
    }

@@ -80,6 +80,7 @@ struct ehci_hcd {			/* one per controller */
 	struct ehci_qh		*asyncqh;
         
         struct ehci_qtd	        *qtds[EHCI_MAX_QTD];
+
         int		        qtd_used;
 	unsigned long		next_statechange;
 	u32			command;
@@ -249,11 +250,14 @@ void ehci_dma_unmap_to(dma_addr_t buf,size_t len);
 void ehci_dma_unmap_from(dma_addr_t buf,size_t len);
 void ehci_dma_unmap_bidir(dma_addr_t buf,size_t len);
 
+inline dma_addr_t get_qtd_dummy(void);
+
+void create_qtd_dummy(void);
 
 /* extern API */
 
 s32 ehci_control_message(struct ehci_device *dev,u8 bmRequestType,u8 bmRequest,u16 wValue,u16 wIndex,u16 wLength,void *buf);
-s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpData);
+s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u32 wLength,void *rpData);
 int ehci_discover(void);
 int ehci_get_device_list(u8 maxdev,u8 b0,u8*num,u16*buf);
 
@@ -276,6 +280,8 @@ s32 USBStorage_Write_Sectors(u32 sector, u32 numSectors, const void *buffer);
 #ifndef DEBUG
 #define STUB_DEBUG_FILES
 #endif	/* DEBUG */
+
+#include "swi_mload.h"
 
 /*-------------------------------------------------------------------------*/
 

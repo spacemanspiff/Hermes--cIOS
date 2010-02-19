@@ -27,6 +27,9 @@ enum{
         ETIMEDOUT,
         EINVAL,
         ENOMEM,
+		EBADDATA,
+		ETRANSERR,
+		EPORTDOWN,
         
 };
 #define jiffies 0

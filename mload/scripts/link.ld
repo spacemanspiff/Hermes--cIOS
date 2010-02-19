@@ -9,10 +9,13 @@ ENTRY(_start)
  */
 
 MEMORY {
-	ios_info_table	: ORIGIN = 0x0, LENGTH = 0x4000
-	exe(rwx)	: ORIGIN = 0x138c0000, LENGTH = 0x8000
+	ios_info_table	: ORIGIN = 0x0, LENGTH = 0xf4
+	exe(rwx)	: ORIGIN = 0x138c0000, LENGTH = 0x4000
+	
 	ram(rw)		: ORIGIN = 0x138c8000, LENGTH = 0x8000
+	
 	ios_exe(rw)	: ORIGIN = 0x13700000, LENGTH = 0x80000
+	
 }
 
 
@@ -29,10 +32,12 @@ SECTIONS
 {
     .debug_aranges 0 : { *(.debug_aranges) } .debug_pubnames 0 : { *(.debug_pubnames) } .debug_info 0 : { *(.debug_info) } .debug_abbrev 0 : { *(.debug_abbrev) } .debug_line 0 : { *(.debug_line) } .debug_frame 0 : { *(.debug_frame) } .debug_str 0 : { *(.debug_str) } .debug_loc 0 : { *(.debug_loc) } .debug_macinfo 0 : { *(.debug_macinfo) } .note.arm.ident 0 : { KEEP (*(.note.arm.ident)) }
     
+
     .mem_exe 0x13700000 : {
 		 *(.mem_exe) 
 	} > ios_exe
-	
+
+
     .ios_info_table __ios_info_table_start :  { . = .; KEEP (*(.ios_info_table)) } > ios_info_table
     .init __exe_start_virt__ : AT (__exe_start_phys__) { . = .; KEEP (*(.init)) } > exe
     .text ALIGN (0x4) : { 

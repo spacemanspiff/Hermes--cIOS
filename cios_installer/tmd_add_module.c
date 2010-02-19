@@ -21,6 +21,7 @@
 #include "mload_elf.h"
 
 //#define ADD_EHC
+
 #define ADD_HAXX // active this if you want to play with starlet without installing 50 times an hour
 //#define REMOVE_OH0
 u32 save_nus_object (u16 index, u8 *buf, u32 size);
@@ -37,8 +38,9 @@ void tmd_add_module(tmd *p_tmd,const u8 *elf, u32 elf_size)
         int content_size = (elf_size+31)&~31;
         u8 *buf = malloc(content_size);
         int index =  p_tmd->num_contents;
+		memset((void *) buf,0,content_size);
 
-        memcpy(buf,elf,elf_size);
+        memcpy((void *) buf,elf,elf_size);
         ncid = 10;
         while(!found){
                 found = 1;
@@ -47,9 +49,10 @@ void tmd_add_module(tmd *p_tmd,const u8 *elf, u32 elf_size)
                         if(p_cr[i].cid == ncid){ found = 0;break;}
                 }
         }
+		
         debug_printf("found a free cid: %x\n",ncid);
         p_cr[index].cid = ncid;
-        p_cr[index].type = 0x8001; // shared
+        p_cr[index].type = 0x8001; // shared is 0x8001
         p_cr[index].size = content_size;
         p_cr[index].index = index;
 
@@ -82,7 +85,8 @@ int add_custom_modules(tmd *p_tmd)
 */
         debug_printf("adding EHC module\n");
         tmd_add_module(p_tmd,ehc_elf,ehc_elf_size);
-        tmp = p_cr[3]; // inverse ehc and oh0 place in tmd
+   
+		tmp = p_cr[3]; // inverse ehc and oh0 place in tmd
         p_cr[3] = p_cr[p_tmd->num_contents-1];
         p_cr[p_tmd->num_contents-1] = tmp;
         tmd_dirty = 1;
@@ -93,9 +97,11 @@ int add_custom_modules(tmd *p_tmd)
 */
         debug_printf("adding haxx module\n");
         tmd_add_module(p_tmd,mload_elf,mload_elf_size);
+
 		tmp = p_cr[3]; // inverse ehc and oh0 place in tmd
         p_cr[3] = p_cr[p_tmd->num_contents-1];
         p_cr[p_tmd->num_contents-1] = tmp;
+
    
         tmd_dirty = 1;
 #endif

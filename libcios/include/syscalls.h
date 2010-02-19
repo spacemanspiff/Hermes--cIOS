@@ -67,7 +67,7 @@ int os_thread_stop(int id);
 int os_message_queue_create(void* ptr, unsigned int id);
 int os_message_queue_receive(int queue, unsigned int* message, unsigned int flags);
 int os_message_queue_send(int queue, unsigned int message, int flags);
-int os_message_queue_now(int queue, unsigned int message, int flags);
+int os_message_queue_send_now(int queue, unsigned int message, int flags);
 
 int os_heap_create(void* ptr, int size);
 int os_heap_destroy(int heap);
@@ -101,7 +101,9 @@ int	os_register_event_handler(int device, int queue, int message);
 
 int	os_unregister_event_handler(int device);
 
-void os_software_IRQ(int dev);
+int os_software_IRQ(int dev);
+
+void os_puts(char *str); // to create log in dev/mload
 
 
 #ifdef DEBUG
