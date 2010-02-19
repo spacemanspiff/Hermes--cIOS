@@ -393,7 +393,7 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
         h_flag=handshake_mode;
 		handshake_mode=1;
 		old_usb_timeout=usb_timeout;
-		usb_timeout=1000*1000;
+		usb_timeout=200*1000;
 		retval = USB_ClearHalt(dev->usb_fd, dev->ep_in);
 		if(retval >=0)
 			retval = USB_ClearHalt(dev->usb_fd, dev->ep_out);
@@ -704,7 +704,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 		usb_timeout=old_usb_timeout;
 		return -ENODEV;
 		}
-	 handshake_mode=2;
+	 handshake_mode=1;
 	
 	usb_timeout=1000*1000;
 	//retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_RESET, 0, dev->interface, 0, NULL);
@@ -716,7 +716,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 	
 	#endif
 
-    usb_timeout=1000*1000;
+    usb_timeout=200*1000;
 
 	/* FIXME?: some devices return -7004 here which definitely violates the usb ms protocol but they still seem to be working... */
         if(retval < 0 && retval != -ETIMEDOUT)
@@ -750,7 +750,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 	retval=USB_GetConfiguration(dev->usb_fd, &conf);
 	if(retval < 0)
 		goto end;
-
+    usb_timeout=1000*1000;
 	if(__lun != 16 && hard_reset && hard_reset_done)
 		{
 		if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
@@ -1083,7 +1083,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 
 	if(lun >= dev->max_lun)
 		return -EINVAL;
-	usb_timeout=5000*1000;
+	usb_timeout=1000*1000;
 	handshake_mode=1;
 
 	retval= __usbstorage_start_stop(dev, lun, 1);
@@ -1329,7 +1329,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		  
            if(retval == USBSTORAGE_ETIMEDOUT /*&& test_max_lun==0*/)
            { 
-               //USBStorage_Reset(&__usbfd);
+               USBStorage_Reset(&__usbfd);
 			   try_status=-121;
 			   __mounted = 0;
                USBStorage_Close(&__usbfd); 
@@ -1370,6 +1370,8 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            return 0;
        }
 	   try_status=-122;
+	  
+	   USBStorage_Reset(&__usbfd);
 	   __mounted = 0;
 	   USBStorage_Close(&__usbfd);
 
