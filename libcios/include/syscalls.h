@@ -64,10 +64,11 @@ int os_get_parent_thread_id(void);
 int os_thread_continue(int id);
 int os_thread_stop(int id);
 
-int os_message_queue_create(void* ptr, unsigned int id);
+int os_message_queue_create(void* ptr, unsigned int max_entries);
 int os_message_queue_receive(int queue, unsigned int* message, unsigned int flags);
 int os_message_queue_send(int queue, unsigned int message, int flags);
 int os_message_queue_send_now(int queue, unsigned int message, int flags);
+void os_message_queue_ack(void* message, int result);
 
 int os_heap_create(void* ptr, int size);
 int os_heap_destroy(int heap);
@@ -75,18 +76,17 @@ void* os_heap_alloc(int heap, unsigned int size);
 void* os_heap_alloc_aligned(int heap, int size, int align);
 void os_heap_free(int heap, void* ptr);
 int os_device_register(const char* devicename, int queuehandle);
-void os_message_queue_ack(void* message, int result);
+
 void os_sync_before_read(void* ptr, int size);
 void os_sync_after_write(void* ptr, int size);
 void os_syscall_50(unsigned int unknown);
-void os_puts(char *str);
 
 int os_open(char* device, int mode);
 int os_close(int fd);
 int os_read(int fd, void *d, int len);
 int os_write(int fd, void *s, int len);
 int os_seek(int fd, int offset, int mode);
-int os_ioctlv(int fd, int request, int bytes_in, int bytes_out, ioctlv *vector);
+int os_ioctlv(int fd, int request, int in, int out, ioctlv *vector);
 int os_ioctl(int fd, int request, void *in,  int bytes_in, void *out, int bytes_out);
 
 // timer control

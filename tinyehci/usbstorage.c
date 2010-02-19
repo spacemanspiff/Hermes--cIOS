@@ -1021,7 +1021,7 @@ found:
 	
 	#endif
 
-//usb_timeout=2000*1000;
+usb_timeout=2500*1000;
 	if(conf != dev->configuration && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) 
 		goto free_and_return;
 
@@ -1029,7 +1029,7 @@ found:
 	if(dev->altInterface != 0 && USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
 		goto free_and_return;
 
-//usb_timeout=1000*1000;
+usb_timeout=1000*1000;
 	try_status=-1204;
 	
 	#ifdef MEM_PRINT
@@ -1080,7 +1080,7 @@ found:
 
 free_and_return:
 
-
+usb_timeout=1000*1000;
 
 	if(retval < 0)
 	{
@@ -1659,10 +1659,14 @@ if(!ums_init_done) return -1009;
 
 	if(USB_GetConfiguration(__usbfd.usb_fd, &conf) <0) return -1000;
 
+	usb_timeout=2500*1000;
+
 	if(conf != __usbfd.configuration && USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
 		
 	if(__usbfd.altInterface != 0 && USB_SetAlternativeInterface(__usbfd.usb_fd, __usbfd.interface, __usbfd.altInterface) < 0) return -1002;
 	
+	usb_timeout=200*1000;
+
 	if( __usbstorage_reset(&__usbfd,0)<0) return -1003;
 			
 	usb_timeout=1000*1000;
