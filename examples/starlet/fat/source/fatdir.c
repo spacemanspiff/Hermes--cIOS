@@ -489,6 +489,8 @@ DIR_ITER* _FAT_diropen_r(struct _reent *r, DIR_ITER *dirState, const char *path)
 	DIR_ENTRY dirEntry;
 	DIR_STATE_STRUCT* state = (DIR_STATE_STRUCT*) (dirState->dirStruct);
 	bool fileExists;
+
+	
 	
 	state->partition = _FAT_partition_getPartitionFromPath (path);
 	if (state->partition == NULL) {

@@ -94,6 +94,17 @@ int file_table[5][2];
 
 #define DEVICE "/dev/fat"
 
+// directory list
+
+#include <sys/dir.h>
+#include "fatdir.h"
+#include <sys/stat.h>
+
+DIR_ITER dir_internal;
+DIR_STATE_STRUCT dir_state_internal;
+
+struct stat filestat;
+
 int main(void)
 {
 int fd,n,mounted=0;
@@ -104,6 +115,11 @@ ipcmessage* message;
 	memset(&my_reent, 0, sizeof(struct _reent));
 	memset(my_filestr, 0, sizeof(FILE_STRUCT)*5);
 	memset(file_table, 0, 4*2*5);
+
+	memset(&dir_state_internal,0,sizeof(DIR_STATE_STRUCT));
+
+	dir_internal.device=0;
+	dir_internal.dirStruct=&dir_state_internal;
 
 	
 
@@ -138,8 +154,14 @@ ipcmessage* message;
 	    case IOS_OPEN:
 			{
 			result = -6;
+
                                 //debug_printf("%s try open %sfor fd %d\n",DEVICE,message->open.device,message->open.resultfd);
 				// Checking device name
+				if (0 == strcmp(message->open.device, DEVICE))
+                                  {
+									result = message->open.resultfd;        
+                                  }
+				else
 				if (0 == strcmp(message->open.device, DEVICE"/log"))
                                   {
 								  if(inited && !mounted) 
@@ -199,6 +221,76 @@ ipcmessage* message;
 			
 					
 			}	
+			break;
+
+		case IOS_IOCTLV:
+			{
+			result = -1;
+
+			ioctlv *vec = message->ioctlv.vector;
+
+                                int i,in = message->ioctlv.num_in,io= message->ioctlv.num_io;
+                               
+                                os_sync_before_read( vec, (in+io)*sizeof(ioctlv));
+
+                                for(i=0;i<in+io;i++){
+                                        os_sync_before_read( vec[i].data, vec[i].len);
+                                      
+                                }
+
+			#if 0
+			// list the directory content to directory.txt
+			switch(message->ioctl.command )
+				{
+				
+				case 0xcacafea:
+				if(inited && !mounted) 
+						mounted=fatMountSimple("sd", &__io_wiisd);
+
+				if(mounted)
+					{
+					my_reent._errno=0;
+					
+					result=-666;
+					if(_FAT_diropen_r(&my_reent, &dir_internal, "sd:/"))
+						{
+						static char log_name2[]="sd:/directory.txt";
+						char filename[768];
+
+						result = 0;
+						my_reent._errno=0;
+						fd=_FAT_open_r(&my_reent, &my_filestr[4], log_name2, O_CREAT | O_TRUNC | O_RDWR, 0);
+						my_reent._errno=0;
+						while(!_FAT_dirnext_r (&my_reent, &dir_internal, filename, &filestat))
+							{
+							my_reent._errno=0;
+							
+							if(fd>=0)
+								{
+								if(filestat.st_mode & S_IFDIR)_FAT_write_r (&my_reent, fd, "[", 1); // es directorio
+								_FAT_write_r (&my_reent, fd, filename, strlen(filename));
+								if(filestat.st_mode & S_IFDIR)_FAT_write_r (&my_reent, fd, "]", 1); // es directorio
+								_FAT_write_r (&my_reent, fd, "\n", 1);
+								
+								}
+							
+							}
+							my_reent._errno=0;
+							if(fd>=0) _FAT_close_r (&my_reent, fd);fd=-1;
+
+						  _FAT_dirclose_r(&my_reent, &dir_internal);
+						}
+
+					
+					}
+				break;
+				}
+			#endif
+				for(i=in;i<in+io;i++){
+											os_sync_after_write( vec[i].data, vec[i].len);
+									}
+			
+			}
 			break;
 
 		case IOS_CLOSE:

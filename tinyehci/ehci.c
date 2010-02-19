@@ -28,7 +28,7 @@
 
 
 /* magic numbers that can affect system performance */
-#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
+#define	EHCI_TUNE_CERR		3	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
 #define	EHCI_TUNE_RL_HS		4	/* nak throttle; see 4.9 */
 #define	EHCI_TUNE_RL_TT		0
 #define	EHCI_TUNE_MULT_HS	1	/* 1-3 transactions/uframe; 4.10.3 */
@@ -168,11 +168,11 @@ void dump_qh(struct ehci_qh	*qh)
  */
 int unplug_device=0;
 
-#define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT)
+#define INTR_MASK (STS_IAA | STS_FATAL | STS_PCD | STS_ERR | STS_INT | STS_FLR)
 
 
 
-int handshake_mode=0;
+int handshake_mode=0; // Modes: 0-> Transfer 1-> initialize 2->Test
 
 #define get_timer()  (*(((volatile u32*)0x0D800010)))
 
@@ -181,29 +181,33 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 {
 	u32	result,status, g_status,g_mstatus, ret=0;
 
-	u32 tmr,temp;
+	u32 tmr,diff;
+	
 
     tmr = get_timer();
 	usec<<=1;
     
 	do {
-		ehci_usleep (10); /* Hermes:  100 microseconds is a good time to response and better for multithread (i think).
+		ehci_usleep (125); /* Hermes:  125 microseconds is a good time to response and better for multithread (i think).
 						the new timer uses syscalls and queues to release the thread focus */
 		//usec-=100;
 
+       
 		status = ehci_readl( pstatus);
 		result = ehci_readl( ptr);
 		g_status=ehci_readl(&ehci->regs->status);
 		g_mstatus=g_status & INTR_MASK;
+	
 
-		if ((g_status == ~(u32)0) || (PORT_OWNER&status) || (g_status & STS_FATAL))		/* card removed */
+		if ((g_status == ~(u32)0))		/* card removed */
 			{
 			unplug_device=1;
 			return -ENODEV;
 			}
+	
 		
 
-		if (/*(g_status == ~(u32)0) || */ !(PORT_CONNECT&status))		/* card removed */
+		if (!(PORT_CONNECT&status))		/* device removed */
 			{
 			unplug_device=1;
 			ret=-ENODEV;
@@ -211,12 +215,14 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 			}
 		result &= mask;
 		
-		
-		if(g_status & STS_ERR) 
+		if(handshake_mode!=2)
 			{
-			if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ENODEV;}
-			goto handshake_exit;
+			if(g_status & (STS_ERR | STS_FATAL | STS_HALT)) 
+				{
+				if(handshake_mode) ret=-ETIMEDOUT; else {unplug_device=1;ret=-ENODEV;}
+				goto handshake_exit;
 
+				}
 			}
 
 		if (result == done)
@@ -224,8 +230,15 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 					ret=0;
 					goto handshake_exit;
                   }
-	temp=get_timer()-tmr;	
-	} while (temp < usec/*usec > 0*/);
+	diff=get_timer();
+	diff-=tmr;
+
+	if(((int)diff)<0)
+		{
+		// error en diferencial: teoricamente imposible, pero...
+		tmr=get_timer();
+		}
+	} while (diff < usec/*usec > 0*/);
 
 
 		
@@ -239,7 +252,9 @@ static int handshake (void __iomem *pstatus, void __iomem *ptr,
 						*/
 		}
 handshake_exit:	
-
+ 
+	if(handshake_mode!=2)
+	{
 	ehci_writel (g_mstatus, &ehci->regs->status);
 	/* complete the unlinking of some qh [4.15.2.3] */
 	u32 command=ehci_readl( &ehci->regs->command);
@@ -253,6 +268,7 @@ handshake_exit:
 			
 			}
 		}
+	}
 		
 return ret;	
 }
@@ -341,7 +357,7 @@ qtd_fill(struct ehci_qtd *qtd, dma_addr_t buf,
  * also count the actual transfer length.
  * 
  */
-static void qh_end_transfer (void)
+static int qh_end_transfer (void)
 {
         struct ehci_qtd	*qtd;
         struct ehci_qh	*qh = ehci->asyncqh;
@@ -351,8 +367,9 @@ static void qh_end_transfer (void)
                 token = hc32_to_cpu( qtd->hw_token);
                 if (likely (QTD_PID (token) != 2))
                         qtd->urb->actual_length += qtd->length - QTD_LENGTH (token);
-                if (!(qtd->length ==0 && ((token & 0xff)==QTD_STS_HALT)) &&
-                    (token & QTD_STS_HALT)) {
+
+                if (/*!(qtd->length ==0 && ((token & 0xff)==QTD_STS_HALT)) &&*/
+                    qtd->length !=0 && (token & QTD_STS_HALT)) {
                         ehci_dbg("\nqtd error!:");
                         if (token & QTD_STS_BABBLE) {
                                 ehci_dbg(" BABBLE");
@@ -382,6 +399,7 @@ static void qh_end_transfer (void)
                 qtd->urb->actual_length = error;
         }
         ehci->qtd_used = 0;
+return error;
 }
 
 /*
@@ -531,7 +549,6 @@ u32 usb_timeout=1000*1000;
 		int			maxp = 0;
         int retval=0;
 
-		//writel (INTR_MASK, &ehci->regs->intr_enable); // try interrupt
 
         //ehci_dbg ("do urb %X %X  ep %X\n",urb->setup_buffer,urb->transfer_buffer,urb->ep);
         if(urb->ep==0) //control message
@@ -613,7 +630,17 @@ u32 usb_timeout=1000*1000;
         ehci->async->hw_next = QH_NEXT(qh->qh_dma);
         ehci_dma_map_bidir(ehci->async,sizeof(struct ehci_qh));
 
-        retval = handshake/*_interrupt*/(&ehci->regs->port_status[dev->port],&ehci->regs->status,STS_INT,STS_INT,usb_timeout);
+        retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->status,STS_INT,STS_INT,usb_timeout);
+		// from 2.6
+		if(retval<0) 
+			{
+			ehci->async->hw_next = QH_NEXT(ehci->async->qh_dma);
+			ehci_dma_map_bidir(ehci->async,sizeof(struct ehci_qh));
+			ehci_dma_unmap_bidir(ehci->async->qh_dma,sizeof(struct ehci_qh));
+		    
+			ehci->qtd_used = 0;
+			return retval;
+			}
 		
         //print_hex_dump_bytes ("qh mem",0,(void*)qh,17*4);
         //retval = poll_transfer_end(1000*1000);
@@ -636,16 +663,29 @@ u32 usb_timeout=1000*1000;
                 set_toggle(dev,urb->ep,(qh->hw_token & cpu_to_hc32(QTD_TOGGLE))?1:0);
                 //ehci_dbg("toggle for ep %x: %d %d %x %X\n",urb->ep,get_toggle(dev,urb->ep),(qh->hw_token & cpu_to_hc32(QTD_TOGGLE)),qh->hw_token,dev->toggles);
 			}
+		
 
         if(retval>=0)
         // wait hc really stopped
                 retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->async_next,~0,ehci->async->qh_dma,20*1000);
-        //release memory, and actualise urb->actual_length
-        qh_end_transfer();
 
-		//writel (0, &ehci->regs->intr_enable);  // try interrupt
+		// from 2.6
+		if(retval<0) 
+			{
+		    
+			ehci->qtd_used = 0;
+			return retval;
+			}
+
+        //release memory, and actualise urb->actual_length
         
-		
+		if(qh_end_transfer()!=0)
+			{
+
+			if(handshake_mode) retval=-ETIMEDOUT; else {unplug_device=1;retval=-ENODEV;}
+            return retval;
+			}
+
         if(urb->transfer_buffer_length){
                 if(urb->input)
                         ehci_dma_unmap_to(urb->transfer_dma,urb->transfer_buffer_length);
@@ -716,6 +756,28 @@ s32 ehci_bulk_message(struct ehci_device *dev,u8 bEndpoint,u16 wLength,void *rpD
         return ret;
 }
 
+static int ehci_reset(void)
+{
+int     retval;
+u32     command = readl (&ehci->regs->command);
+int f=handshake_mode;
+
+	handshake_mode=2;
+	command |= CMD_RESET | 1;
+    writel (command, &ehci->regs->command);
+	ehci_msleep(100);
+	//command = readl (&ehci->regs->command);
+
+	writel (command & ~CMD_RESET, &ehci->regs->command);
+        
+    retval = handshake (&ehci->regs->port_status[0], &ehci->regs->command, CMD_RESET, 0, 250 * 1000);
+	ehci_msleep(10);
+	
+	handshake_mode=f;
+
+ return retval;
+
+}
 
 int ehci_reset_port_old(int port)
 {
@@ -723,40 +785,59 @@ int ehci_reset_port_old(int port)
         struct ehci_device *dev = &ehci->devices[port];
         u32 status = ehci_readl(status_reg);
         int retval = 0,i,f;
+		u32 g_status;
         dev->id = 0;
 
-       
+		g_status=ehci_readl(&ehci->regs->status);
+ 
+        if ((g_status & (STS_HALT | STS_FATAL)) || !(ehci_readl (&ehci->regs->command) & 1))
+			{
+            // try LIGHT RESET and RUN (may be is unsopported, but i am sure you cannot perform the HCRESET without problems (so i try this method)
+
+			ehci_writel( g_status & INTR_MASK,&ehci->regs->status);
+			g_status=ehci_readl (&ehci->regs->command);
+			//ehci_reset();
+			ehci_writel( 0x008000080, &ehci->regs->command); 
+			ehci_msleep(20);
+			ehci_writel( ehci->periodic_dma, &ehci->regs->frame_list); 
+			ehci_writel( ehci->async->qh_dma, &ehci->regs->async_next); 
+			ehci_writel( 0x00010009, &ehci->regs->command);
+			ehci_msleep(10);
+			//ehci_writel( 1, &ehci->regs->configured_flag);
+			ehci_writel( 0x00010029, &ehci->regs->command);
+			ehci_msleep(10);
+			g_status=ehci_readl (&ehci->regs->command);
+			g_status=ehci_readl(&ehci->regs->status);
+			}
+
+	    // clear status flags
+		
+		ehci_writel( g_status & INTR_MASK,&ehci->regs->status);
+		g_status=ehci_readl (&ehci->regs->command);
+
 		if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
         {
-                ehci_writel( PORT_OWNER,status_reg);
+               // ehci_writel( PORT_OWNER,status_reg);
                 ehci_dbg ( "port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
                 return -ENODEV;// no USB2 device connected
         }
         ehci_dbg ( "port %d has usb2 device connected! reset it...\n", port);
 
 		f=handshake_mode;
-		handshake_mode=1;
+		handshake_mode=2;
 
 		for(i=0;i<4;i++)  //4 retries
 		{ 
-		u32 status = ehci_readl(status_reg);
-		status &= ~PORT_PE;
-		status |= PORT_RESET | PORT_POWER;       
-        ehci_writel( status,status_reg);
-        ehci_msleep(100);// wait 60ms for the reset sequence
-        status=ehci_readl(status_reg);
-        status &= ~(PORT_RWC_BITS | PORT_RESET); /* force reset to complete */
-		ehci_writel( status,status_reg);
+		u32 status;
+		ehci_writel( 0x1803,status_reg);
+        ehci_msleep(10);
+        ehci_writel( 0x1903,status_reg);
+		ehci_msleep(100);// wait 100ms for the reset sequence
+        ehci_writel( 0x1801,status_reg);
 		ehci_msleep(100);
 		status = ehci_readl(status_reg);
-		if ((PORT_OWNER&status) || !(PORT_CONNECT&status) || !(status & PORT_PE) || !(status & PORT_POWER))
+		if ((PORT_OWNER&status) || !(PORT_CONNECT&status) || !(status & PORT_PE) || !(status & PORT_POWER) || PORT_USB11(status))
 			{
-			/*ehci_writel( 0x1803,status_reg);
-			ehci_msleep(100);
-			ehci_writel( 0x1903,status_reg);
-			ehci_msleep(100);// wait 50ms for the reset sequence
-			ehci_writel( 0x1001,status_reg);
-			ehci_msleep(50);*/
 			retval=-1;
 			continue;
 			}
@@ -765,7 +846,7 @@ int ehci_reset_port_old(int port)
        
         //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
         retval = handshake(status_reg, status_reg,
-                           PORT_RESET, 0, 750);
+                           PORT_RESET, 0, 60*1000/*750*/);
         if (retval == 0) 
 			{
                /* ehci_dbg ( "port %d reset error %d\n",
@@ -773,6 +854,7 @@ int ehci_reset_port_old(int port)
                
 			ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
 			ehci_msleep(100);
+			handshake_mode=1;
 			// now the device has the default device id
 			retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
@@ -802,6 +884,8 @@ int ehci_reset_port_old(int port)
         ehci_dbg ( "device %d: %X %X...\n", dev->id,le16_to_cpu(dev->desc.idVendor),le16_to_cpu(dev->desc.idProduct));
         return retval;
 }
+
+#if 0
 void ehci_adquire_port(int port)
 {
 	u32 __iomem	*status_reg = &ehci->regs->port_status[port];
@@ -820,7 +904,7 @@ void ehci_adquire_port(int port)
 	
 
 	//enable port	
-	ehci_writel( 0x1001,status_reg);
+	ehci_writel( 0x1801,status_reg);
     ehci_msleep(5);
 }
 int ehci_reset_usb_port(int port)
@@ -842,7 +926,7 @@ int ehci_reset_usb_port(int port)
     for(i=0;i<4;i++)  //4 retries
     {       
       status &= ~PORT_PE;
-      status |= PORT_RESET;       
+      status |= PORT_RESET | PORT_POWER;       
         ehci_writel( status,status_reg);
         ehci_msleep(60);// wait 60ms for the reset sequence
         status=ehci_readl(status_reg);
@@ -994,25 +1078,34 @@ int ehci_init_port(int port)
         return retval;
 }
 
+#endif
 int ehci_reset_port(int port)
 {
 	int retval;
+	retval=ehci_reset_port_old(port);
+	/*
 	retval=ehci_reset_usb_port(port);
 	if(retval>=0)retval=ehci_init_port(port);
+	*/
 	return retval;
 }
 int ehci_reset_port2(int port)
 {
 u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+
+	
+	ehci->qtd_used = 0;
+
 int ret=ehci_reset_port_old(port);
 if(ret<0/*==-ENODEV || ret==-ETIMEDOUT*/)
 	{
-	u32 status=ehci_readl(status_reg);
-	if(status &  1)
-		{
-		ehci_msleep(500); // power off 
-		ehci_writel( 0x1001 ,status_reg); // power on
-		}
+	ehci_msleep(100); // power off 
+	ehci_writel( 0x1803,status_reg);
+    ehci_msleep(100);
+    ehci_writel( 0x1903,status_reg);
+	ehci_msleep(100);// wait 100ms for the reset sequence
+    ehci_writel( 0x1801,status_reg);	
+		
 	}
 return ret;
 }
@@ -1071,7 +1164,7 @@ int ehci_open_device(int vid,int pid,int fd)
 int ehci_close_device(struct ehci_device *dev)
 {
         if (dev)
-                dev->fd = 0;
+                dev->fd = -1;
         return 0;
 }
  void * ehci_fd_to_dev(int fd)
@@ -1080,12 +1173,18 @@ int ehci_close_device(struct ehci_device *dev)
         for(i=0;i<ehci->num_port;i++)
         {
                 struct ehci_device *dev = &ehci->devices[i];
+
+				return dev; // return always device[0]
+
+				#if 0
                 //ehci_dbg ( "device %d:fd:%d %X %X...\n", dev->id,dev->fd,le16_to_cpu(dev->desc.idVendor),le16_to_cpu(dev->desc.idProduct));
                 if(dev->fd == fd){
                         return dev;
+				
                 }
+				#endif
         }
-        ehci_dbg("unkown fd! %d\n",fd);
+        ehci_dbg("unknown fd! %d\n",fd);
         return 0;
 }
 #define g_ehci #error

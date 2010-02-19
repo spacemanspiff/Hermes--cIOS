@@ -131,7 +131,7 @@ int tiny_ehci_init(void)
 	//////////////////////////////////////////////////////////////////////////////////////////////
 	/* WARNING: This ignore the port 1 (external) and 2,3 (internals) for USB 2.0 operations    */
 	/* from cIOS mload 1.6 port 1 is forced to USB 1.1. Only port 0 can work as USB 2.0         */
-
+	
 	ehci->num_port=1;
 
 	//writel (INTR_MASK, &ehci->regs->intr_enable); //try interrupt

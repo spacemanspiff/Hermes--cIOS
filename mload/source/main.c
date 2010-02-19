@@ -64,6 +64,13 @@
 
 #define MLOAD_SET_ES_IOCTLV		0x4D4C44B0
 
+#define MLOAD_GETW				0x4D4C44C0
+#define MLOAD_GETH				0x4D4C44C1
+#define MLOAD_GETB				0x4D4C44C2
+#define MLOAD_SETW				0x4D4C44C3
+#define MLOAD_SETH				0x4D4C44C4
+#define MLOAD_SETB				0x4D4C44C5
+
 #define DEVICE "/dev/mload"
 
 
@@ -204,7 +211,7 @@ int main(void)
 	ipcmessage* message;
     unsigned int offset = 0;
 
-	//os_thread_set_priority(1);
+	
     
 	mem_exe[0]=0; // don't remove this !!!!!
 	
@@ -421,6 +428,53 @@ int main(void)
 										ES_ioctlv_vect=ioctlv_u32(vec[0]);
 										os_sync_after_write( &ES_ioctlv_vect, 4);
 										break;
+
+								case MLOAD_GETW:
+									result=0;
+									ioctlv_u32(vec[1])=*((volatile u32*) ioctlv_u32(vec[0]));
+									break;
+								case MLOAD_GETH:
+									result=0;
+									ioctlv_u16(vec[1])=*((volatile u16*) ioctlv_u32(vec[0]));
+									break;
+								case MLOAD_GETB:
+									result=0;
+									ioctlv_u8(vec[1])=*((volatile u8*) ioctlv_u32(vec[0]));
+									break;
+
+								case MLOAD_SETW:
+									result=0;
+									*((volatile u32*) ioctlv_u32(vec[0]))=ioctlv_u32(vec[1]);
+									break;
+								case MLOAD_SETH:
+									result=0;
+									*((volatile u16*) ioctlv_u32(vec[0]))=ioctlv_u16(vec[1]);
+									break;
+								case MLOAD_SETB:
+									result=0;
+									*((volatile u8*) ioctlv_u32(vec[0]))=ioctlv_u8(vec[1]);
+									break;
+
+
+
+									/*
+			    if (message->read.length == 4)
+				{
+				  *(volatile unsigned long*)(message->read.data) = *(volatile unsigned long*)offset;
+				}
+				else if (message->read.length == 2)
+				{
+					*(volatile unsigned short*)(message->read.data) = *(volatile unsigned short*)offset;
+				}
+				else if (message->read.length == 1)
+				{
+					*(volatile unsigned char*)(message->read.data) = *(volatile unsigned char*)offset;
+				}
+				else
+				{
+					memcpy(message->read.data, (void*)offset, message->read.length);
+				}
+				*/
 							
                                 }
                                 for(i=in;i<in+io;i++){

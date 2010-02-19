@@ -56,7 +56,7 @@ typedef struct ipcmessage
 
 // NOTE: I think "autostart" is a flag to indicate an internal (child thread) or external thread
 int os_thread_create( unsigned int (*entry)(void* arg), void* arg, void* stack, unsigned int stacksize, unsigned int priority, int autostart);
-void os_thread_set_priority(unsigned int priority);
+void os_thread_set_priority(int id, unsigned int priority);
 int os_thread_get_priority(void);
 int os_get_thread_id(void);
 int os_get_parent_thread_id(void);

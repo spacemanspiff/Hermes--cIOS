@@ -60,7 +60,7 @@ struct ehci_urb{
         void* transfer_buffer;
         dma_addr_t transfer_dma;
         u32 transfer_buffer_length;
-        u32 actual_length;
+        s32 actual_length;
 
         u8 ep;
         u8 input;

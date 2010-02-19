@@ -120,18 +120,61 @@ static int ehci_init(void)
 	ehci->command = 0;
 
 	ehci_writel( 0x008000002, &ehci->regs->command); 
+	msleep(20);
 	ehci_writel( ehci->periodic_dma, &ehci->regs->frame_list); 
 	ehci_writel( ehci->async->qh_dma, &ehci->regs->async_next); 
-	ehci_writel( 0x00010009, &ehci->regs->command);
+	ehci_writel( 0x00020009, &ehci->regs->command);
+	msleep(20);
 	ehci_writel( 1, &ehci->regs->configured_flag);
-	ehci_writel( 0x00010029, &ehci->regs->command);
+	ehci_writel( 0x00020029, &ehci->regs->command);
+	msleep(20);
 
 
         return 0;
 }
+
+int ehci_adquire_port(int port)
+{
+	u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+	u32 status = ehci_readl(status_reg); 
+
+	//change owner, port disabled
+	if(status & PORT_OWNER)
+		{
+		status ^= PORT_OWNER;
+		status &= ~(PORT_PE | PORT_RWC_BITS);
+		ehci_writel(status, status_reg);	
+		msleep(5);
+		status = ehci_readl(status_reg);
+		}
+        ehci_writel( 0x1803,status_reg);
+        msleep(100);
+        ehci_writel( 0x1903,status_reg);
+		msleep(100);// wait 100ms for the reset sequence
+        ehci_writel( 0x1801,status_reg);
+        msleep(60);
+		#if 0
+		status &= ~PORT_PE;
+		status |= 0x800 | PORT_RESET | PORT_POWER;       
+        ehci_writel( status,status_reg);
+        msleep(60);// wait 60ms for the reset sequence
+        status=ehci_readl(status_reg);
+        status &= ~(PORT_RWC_BITS | PORT_RESET); /* force reset to complete */
+		ehci_writel( status,status_reg);
+		msleep(60);
+		//enable port	
+		#endif
+		
+		status = ehci_readl(status_reg);
+
+		if((status & PORT_OWNER) || PORT_USB11(status)) return 1;
+	
+return 0;
+}
 int tiny_ehci_init(void)
 {
         int retval;
+		int n;
         ehci = &_ehci;
 
 
@@ -151,7 +194,10 @@ int tiny_ehci_init(void)
     ehci_release_ports(); //quickly release none usb2 port
     ehci_writel( PORT_OWNER, &ehci->regs->port_status[1]); // force port 1 to work as USB 1.1
 
-		
+    for(n=0;n<3;n++)
+		{
+		if(!ehci_adquire_port(0)) break;
+		}
 
 	return 0;
 }
@@ -163,7 +209,7 @@ int ehci_release_ports(void)
         u32 __iomem	*status_reg = &ehci->regs->port_status[2];
         while(ehci_readl(&ehci->regs->port_status[2]) == 0x1000);// wait port 2 to init
         msleep(1);// wait another msec..
-        for(i = 0;i<ehci->num_port; i++){
+        for(i = 1;i<ehci->num_port; i++){
           status_reg = &ehci->regs->port_status[i];
           u32 status = ehci_readl(status_reg);
           if (i==2 || !(PORT_CONNECT&status) || PORT_USB11(status))

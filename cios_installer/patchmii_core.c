@@ -100,7 +100,7 @@ int OUTPUT_TITLEID_L=222;
 // desactiva
 #endif
 
-#define OUTPUT_VERSION 2
+#define OUTPUT_VERSION 3
 
 #if 0
 // to get modules

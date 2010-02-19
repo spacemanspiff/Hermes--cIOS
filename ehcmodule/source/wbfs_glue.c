@@ -37,7 +37,7 @@
 #include "syscalls.h"
 #include "libwbfs.h"
 
-static u32 n_sec,sec_size;
+u32 n_sec,sec_size;
 
 s32 USBStorage_Read_Sectors_ingame(u32 sector, u32 numSectors, void *buffer, int speed_limit);
 
@@ -48,8 +48,8 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
         int ret;
 		
 	
-	
-        ret = USBStorage_Read_Sectors/*_ingame*/(lba,count, buf/*, DVD_speed_limit*/);
+	    os_sync_after_write(buf, count*sec_size);
+        ret = USBStorage_Read_Sectors(lba,count, buf);
         if(!ret)
                 return 1;
 
@@ -59,15 +59,35 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
 
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 {
-        wbfs_t *p;
-        USBStorage_Init();
-        n_sec =  USBStorage_Get_Capacity(&sec_size);
-        debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
-        if (n_sec==0){
-                return 0; //no hd
-        }
-        p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0);
-        if(!p) // no partition
+        static wbfs_t *p=NULL;
+		static wbfs_disc_t *d=NULL;
+		static u8 old_discid[6]="";
+		
+		// opens the hd only is is not opened
+		if(!p)
+			{
+			USBStorage_Init();
+			n_sec =  USBStorage_Get_Capacity(&sec_size);
+			debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
+			if (n_sec==0)
+                return NULL; //no hd
+			p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0); 
+			if(!p) // no partition
                 return NULL;
-        return wbfs_open_disc( p, discid);
+			}
+		// close previously disc opened except if discid is equal
+		if(d) 
+			{
+			
+			if(!memcmp(old_discid,discid,6)) return d;
+			
+			wbfs_close_disc(d);d=NULL;
+			}
+
+        // open the disc
+        d=wbfs_open_disc(p, discid);
+
+		if(d) memcpy(old_discid,discid,6);
+
+        return d;
 }

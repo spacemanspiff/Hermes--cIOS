@@ -24,8 +24,8 @@ data_elf my_data_elf;
 
 int my_thread_id=0;
 
-
 static const char fat_fs[] ATTRIBUTE_ALIGN(32) = "/dev/fat/log";
+static const char fat_fs_log[] ATTRIBUTE_ALIGN(32) = "/dev/fat/log";
 static const char fat_fs2[] ATTRIBUTE_ALIGN(32) = "/dev/fat/sd:/my_file.txt";
 //static const char fat_fs2[] ATTRIBUTE_ALIGN(32) = "/dev/fat/my_file.txt"; // alternative form
 static char dump_datas[256] ATTRIBUTE_ALIGN(32);
@@ -101,10 +101,23 @@ int ret;
 
 	printf("The example Module provides FAT/FAT32 access to the SD from the Starlet\n\n");
 
+	#if 0
+	// list root directory to sd:/directory.txt
+	fd=IOS_Open(fat_fs, 0);
+
+	if(fd>=0)
+		{
+		ret= IOS_IoctlvFormat(iosCreateHeap(0x800), fd, 0xcacafea, ":");
+		IOS_Close(fd);
+		printf("ioctlv %i\n\n", ret);
+		}
+	 #endif
+
+
 
     printf("Writing a Log message in the SD (file log000.txt surely)\n\n");
 
-	fd=IOS_Open(fat_fs, 0);
+	fd=IOS_Open(fat_fs_log, 0);
 	if(fd>=0)
 		{
 		strcpy(dump_datas,"Hello guy");

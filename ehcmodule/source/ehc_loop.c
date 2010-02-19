@@ -80,7 +80,8 @@ void ehci_msleep(int msec);
 
 void USBStorage_Umount(void);
 
-#define DEVICE "/dev/usb/ehc"
+//#define DEVICE "/dev/usb/ehc"
+#define DEVICE "/dev/usb2"
 
 int verbose = 0;
 #define ioctlv_u8(a) (*((u8*)(a).data))
@@ -91,7 +92,7 @@ int verbose = 0;
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition);
 
 
-#define WATCHDOG_TIMER 1000*1000*10
+#define WATCHDOG_TIMER 1000*1000*16
 
 
 
@@ -167,6 +168,7 @@ void WBFS_Free(void *ptr)
 
 void my_sprint(char *cad, char *s)
 {
+#if 0
 int n=strlen(cad);
 int m=0;
 int fd;
@@ -180,6 +182,7 @@ os_write(fd, cad, n);
 if(s)
    os_write(fd, s, m);
 os_close(fd);
+#endif
 }
 
 #if 0
@@ -222,6 +225,10 @@ extern int unplug_device;
 
 int unplug_procedure(void);
 
+extern int is_watchdog_read_sector;
+
+extern u32 n_sec,sec_size;
+
 int ehc_loop(void)
 {
 	ipcmessage* message;
@@ -234,23 +241,24 @@ int ehc_loop(void)
 
     my_sprint("ehc loop entry", NULL);
 	
-	void* queuespace = os_heap_alloc(heaphandle, 0x40);
+	void* queuespace = os_heap_alloc(heaphandle, 0x80);
 
 	
 
-	int queuehandle = os_message_queue_create(queuespace, 16);
+	int queuehandle = os_message_queue_create(queuespace, 32);
 
 	
 
 	os_device_register(DEVICE, queuehandle);
-	timer2_id=os_create_timer(WATCHDOG_TIMER, WATCHDOG_TIMER, queuehandle, 0x666);
-
+	timer2_id=os_create_timer(WATCHDOG_TIMER, WATCHDOG_TIMER, queuehandle, 0x0);
 	
      int ums_mode = 0;
      int already_discovered = 0;
      wbfs_disc_t *d = 0;
       
 	 int usb_lock=0;
+
+	 int watch_time_on=1;
 	
 	
 	while(1)
@@ -262,36 +270,50 @@ int ehc_loop(void)
 		// Wait for message to arrive
 		os_message_queue_receive(queuehandle, (void*)&message, 0);
 
-        os_stop_timer(timer2_id); // stops watchdog timer
-		
-
 		// timer message WATCHDOG
-		if((int) message==0x555) continue;
+		//if((int) message==0x555) continue;
+
+		if(watch_time_on)
+			os_stop_timer(timer2_id); // stops watchdog timer
+		watch_time_on=0;
 		
-		if((int) message==0x666)
+		is_watchdog_read_sector=0;
+
+		if((int) message==0x0)
 		{
 		
 		if(must_read_sectors && watchdog_enable)
 			{
-			int n,m;
+			int n,r;
 
-			unplug_procedure();
+			if(unplug_device)
+				{
+				for(n=0;n<3;n++)
+					if(!unplug_procedure()) break;
+				}
+
 			if(unplug_device==0)
 				{
-	
-				n=USBStorage_Get_Capacity((void *) &m);
-				if(m<2048) // only support sector size minor to 2048
+
+				if(sec_size!=0 && sec_size<2048) // only support sector size minor to 2048
 					{
 					
-					USBStorage_Read_Sectors(last_sector, 1, mem_sector);
-					last_sector+=0x1000000/m; // steps of 16MB
-					if(last_sector>n) last_sector=0;
+
+					is_watchdog_read_sector=1;
+
+					r=USBStorage_Read_Sectors(last_sector, 1, mem_sector);
+
+					is_watchdog_read_sector=0;
+					if(r!=0)
+						last_sector+=0x1000000/sec_size; // steps of 16MB
+					if(last_sector>=n_sec) last_sector=0;
 					}
-				os_restart_timer(timer2_id, WATCHDOG_TIMER);
+				
 				}
 			
 			
-			
+			watch_time_on=1;
+			os_restart_timer(timer2_id, WATCHDOG_TIMER);
 			}
 		continue;
 		}
@@ -387,6 +409,7 @@ int ehc_loop(void)
 										must_read_sectors=0;
 										
                                         result = USBStorage_Init();
+										//result=-os_thread_get_priority();
 										if(result>=0) {must_read_sectors=1;watchdog_enable=1;}
                                         ums_mode = message->fd;
 										if(result>=0) my_sprint("UMS Init", NULL); else  my_sprint("UMS fail", NULL);
@@ -398,7 +421,13 @@ int ehc_loop(void)
 										result =0;
 										break;
                                 case USB_IOCTL_UMS_GET_CAPACITY:
-                                        result =  USBStorage_Get_Capacity(ioctlv_voidp(vec[0]));
+									    n_sec =  USBStorage_Get_Capacity(&sec_size);
+                                        result =n_sec ;
+										if(ioctlv_voidp(vec[0]))
+											{
+											*((u32 *) ioctlv_voidp(vec[0]))= sec_size;
+											}
+										
                                         break;
                                 case USB_IOCTL_UMS_READ_SECTORS:
                                         if (verbose)
@@ -437,7 +466,7 @@ int ehc_loop(void)
                                          if(!d)
                                                result = -1;
                                          else
-                                                result = 0;
+											{result = 0;watchdog_enable=1;}
                                         my_sprint("WBFS Open()", NULL);
 										must_read_sectors=1;
                                         break;
@@ -446,20 +475,20 @@ int ehc_loop(void)
                                                 debug_printf("r%x %x\n",ioctlv_u32(vec[0]),ioctlv_u32(vec[1]));
                                         else
                                                 debug_printf("r%x %x\r",ioctlv_u32(vec[0]),ioctlv_u32(vec[1]));
-                                        if(!d || usb_lock)
+                                        if(!d /*|| usb_lock*/)
                                                 result = -1;
                                         else
 									{
 											usb_lock=1;
-											os_stop_timer(timer2_id);
-                                                result = wbfs_disc_read2(d,ioctlv_u32(vec[0]),ioctlv_voidp(vec[2]),ioctlv_u32(vec[1]));
+											//os_stop_timer(timer2_id);
+                                                result = wbfs_disc_read(d,ioctlv_u32(vec[0]),ioctlv_voidp(vec[2]),ioctlv_u32(vec[1]));
 											usb_lock=0;
-                                       /* if(result){
+                                       if(result){
                                           debug_printf("wbfs failed! %d\n",result);
                                           //result = 0x7800; // wii games shows unrecoverable error..
                                           result = 0x8000; 
-                                        }*/
-										result=0;
+                                        }
+										//result=0;
 									}
 										
                                   break;
@@ -476,13 +505,18 @@ int ehc_loop(void)
 				//ack = 0;
 			break;
 		}
-		if(watchdog_enable)
+		
+        if(watchdog_enable)
+			{
+			watch_time_on=1;
 			os_restart_timer(timer2_id, WATCHDOG_TIMER);
-                //debug_printf("return %d\n",result);
+			}
 		// Acknowledge message
 		
 		if (ack)
 			os_message_queue_ack( (void*)message, result );
+
+		
 	}
    
 	return 0;
