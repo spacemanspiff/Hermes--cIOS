@@ -800,8 +800,69 @@ s32 install(const signed_blob *s_tmd, const signed_blob *s_certs, u32 certs_len)
 
 void fun_exit()
 {
-sleep(5);
+	WPAD_Shutdown();
+	sleep(5);
 }
+
+u64 *titles = NULL;
+u32 num_titles=0;
+int ios_index=0;
+
+u8 ios_found[256];
+
+int get_title_list()
+{
+
+
+	u32 len_buf;
+	s32 ret;
+	int n;
+
+    memset((void *) ios_found,0, 256);
+
+	ret = ES_GetNumTitles(&num_titles);
+	if (ret < 0)
+		return ret;
+
+	if(num_titles<1) return -1;
+
+	len_buf = round_up((num_titles+1) * sizeof(u64), 32);
+
+	titles = memalign(32, len_buf);
+	if (!titles)
+		return -1;
+
+
+	ret = ES_GetTitles(titles, num_titles);
+	if (ret < 0)
+		goto err;
+
+	n=0;
+	while(n<num_titles)
+	{
+	u32 tidh = (titles[n] >> 32);
+	u32 tidl = (titles[n] &  0xFFFFFFFF);
+
+	if ((tidh != 0x1) || (tidl < 3) || (tidl > 255))
+		{
+		num_titles--;
+		memcpy(&titles[n],&titles[n+1], (num_titles-n) * sizeof(u64));
+		} 
+		else 
+			{ios_found[tidl]=1;n++;}
+	}
+
+    
+return 0;
+
+err:
+	
+	if (titles) free(titles); titles = NULL;
+
+	return ret;
+
+}
+
 int main(int argc, char **argv) {
 	int rv;
 	s32 pressed;
@@ -819,26 +880,69 @@ int main(int argc, char **argv) {
 	printf("\n");
 	printf("USE ON YOUR OWN RISK!\n");
 	printf("\n");
-	printf("Press A to continue (TAKE THE RISK).\n");
-	printf("Switch off if you have any fear.\n");
+
+	sleep(2);
+
 #if 1
+
+	if(get_title_list()!=0)
+	{
+		printf("Error getting title list\n");
+		return 0;
+	}
+
+    ios_index=36;
+    if(ios_found[249]) ios_index=249;
+	else
+	if(ios_found[250]) ios_index=250;
+	else
+	if(ios_found[222]) ios_index=222;
+	else
+	if(ios_found[223]) ios_index=223;
+	else
+	if(ios_found[35]) ios_index=35;
+	
+	while(!ios_found[ios_index]) {ios_index++;if(ios_index>255) ios_index=0;}
+	
+	
+
 	while(1)
 	{
+	printf("\33[2J\n\n\n\33[42m cIOS Installer\33[40m \n\n\n");
+
+	printf("  Selected IOS for install <%i>\n\n\n", ios_index);
+	printf("  Press LEFT/RIGHT to select other different IOS\n\n");
+	printf("  Press A to continue (TAKE THE RISK).\n\n");
+	printf("  Press B to abort.\n\n");
+
 		WPAD_ScanPads();
 		pressed = WPAD_ButtonsDown(0);
 
 		if(pressed) {
 			if (pressed == WPAD_BUTTON_A) {
 				break;
-			} else {
-				printf("Wrong button pressed, exiting...\n");
+			} 
+		if (pressed == WPAD_BUTTON_B) {
+				printf("Aborted, exiting...\n");
 				return 0;
+			}
+		if (pressed == WPAD_BUTTON_RIGHT)
+			{
+			do{ios_index++;if(ios_index>255) ios_index=0;} while(!ios_found[ios_index]);
+			}
+		if (pressed == WPAD_BUTTON_LEFT)
+			{
+			do{ios_index--;if(ios_index<0) ios_index=255;} while(!ios_found[ios_index]);
 			}
 		}
 		VIDEO_WaitVSync();
 	}
 #endif
-	
+
+	WPAD_Shutdown();
+	IOS_ReloadIOS(ios_index);
+
+	WPAD_Init();
 	selected=1;
 
 	while(1)

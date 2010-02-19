@@ -31,7 +31,8 @@ distribution.
 #define ROUNDDOWN32(v)				(((u32)(v)-0x1f)&~0x1f)
 
 //#define	HEAP_SIZE			(32*1024)
-#define	TAG_START			0x1//BADC0DE
+//#define	TAG_START			0x1//BADC0DE
+#define	TAG_START			0x0BADC0DE
 
 #define	CBW_SIZE			31
 #define	CBW_SIGNATURE			0x43425355
@@ -45,6 +46,7 @@ distribution.
 #define	SCSI_TEST_UNIT_READY		0x00
 #define	SCSI_INQUIRY			0x12
 #define	SCSI_REQUEST_SENSE		0x03
+#define	SCSI_START_STOP			0x1b
 #define	SCSI_READ_CAPACITY		0x25
 #define	SCSI_READ_10			0x28
 #define	SCSI_WRITE_10			0x2A
@@ -75,6 +77,7 @@ static int ums_init_done = 0;
 
 static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset);
 static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun);
+static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop);
 
 // ehci driver has its own timeout.
 static s32 __USB_BlkMsgTimeout(usbstorage_handle *dev, u8 bEndpoint, u16 wLength, void *rpData)
@@ -258,6 +261,30 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 
 	return retval;
 }
+
+static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop)
+{
+	s32 retval;
+	u8 cmd[16];
+	
+	u8 status = 0;
+
+	memset(cmd, 0, sizeof(cmd));
+	cmd[0] = SCSI_START_STOP;
+	cmd[1] = (lun << 5) | 1;
+	cmd[4] = start_stop & 3;
+	cmd[5] = 0;
+	//memset(sense, 0, SCSI_SENSE_REPLY_SIZE);
+	retval = __cycle(dev, lun, NULL, 0, cmd, 6, 0, &status, NULL);
+	if(retval < 0) goto error;
+
+	
+	if(status == SCSI_SENSE_NOT_READY || status == SCSI_SENSE_MEDIUM_ERROR || status == SCSI_SENSE_HARDWARE_ERROR) 
+					retval = USBSTORAGE_ESENSE;
+error:
+	return retval;
+}
+
 static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 {
 	s32 retval;
@@ -268,9 +295,14 @@ static s32 __usbstorage_clearerrors(usbstorage_handle *dev, u8 lun)
 	cmd[0] = SCSI_TEST_UNIT_READY;
 
 	if(!sense) return -ENOMEM;
-
-	retval = __cycle(dev, lun, NULL, 0, cmd, 1, 1, &status, NULL);
-	if(retval < 0) goto error; // Hermes: bug fixed (free(sense))
+    
+	/*while(1)
+		{*/
+		retval = __cycle(dev, lun, NULL, 0, cmd, 1, 1, &status, NULL);
+		if(retval < 0) goto error; // Hermes: bug fixed (free(sense))
+		/*if(status==0 || status!=0x8) break;
+		ehci_msleep(10);
+		}*/
 
 	if(status != 0)
 	{
@@ -483,7 +515,7 @@ found:
 	if(retval == USBSTORAGE_ETIMEDOUT)*/
 
 	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
-		dev->max_lun = 16; // max_lun can be from 1 to 16, but some devices do not support lun 
+		dev->max_lun = 8; // max_lun can be from 1 to 16, but some devices do not support lun 
 	
 	retval = USBSTORAGE_OK;
 
@@ -506,7 +538,9 @@ found:
 	else retval = USBSTORAGE_OK;
 
 free_and_return:
+
 	if(max_lun!=NULL) USB_Free(max_lun);
+
 	if(retval < 0)
 	{
 		if(dev->buffer != NULL)
@@ -545,6 +579,7 @@ s32 USBStorage_GetMaxLUN(usbstorage_handle *dev)
 	return dev->max_lun;
 }
 
+
 s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 {
 	s32 retval;
@@ -552,6 +587,11 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	if(lun >= dev->max_lun)
 		return -EINVAL;
 	usb_timeout=1000*1000;
+
+	/*retval= __usbstorage_start_stop(dev, lun, 1);
+    if(retval < 0)
+		return retval;*/
+	
 	retval = __usbstorage_clearerrors(dev, lun);
 	if(retval < 0)
 		return retval;
@@ -731,10 +771,11 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 s32 USBStorage_Try_Device(struct ehci_device *fd)
 {
         int maxLun,j,retval;
+		int test_max_lun=1;
        if(USBStorage_Open(&__usbfd, fd) < 0)
            return -EINVAL;
 	  
-	
+	/*
        maxLun = USBStorage_GetMaxLUN(&__usbfd);
        if(maxLun == USBSTORAGE_ETIMEDOUT)
 			{
@@ -742,16 +783,20 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		    USBStorage_Close(&__usbfd);
 			return -EINVAL;
 			}
+*/
+	 
+	maxLun= 1;
+    __usbfd.max_lun = 1;  
 
-      
-	   
-       for(j = 0; j < maxLun; j++)
+	j=0; 
+      //for(j = 0; j < maxLun; j++)
+	while(1)
        {
 
 		   
            retval = USBStorage_MountLUN(&__usbfd, j);
 		  
-           if(retval == USBSTORAGE_ETIMEDOUT)
+           if(retval == USBSTORAGE_ETIMEDOUT && test_max_lun==0)
            { 
                //USBStorage_Reset(&__usbfd);
 			   __mounted = 0;
@@ -761,7 +806,24 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
            }
 
            if(retval < 0)
-               continue;
+				{
+				if(test_max_lun)
+					{
+					__usbfd.max_lun = 0;
+					retval = __USB_CtrlMsgTimeout(&__usbfd, 
+						(USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), 
+						USBSTORAGE_GET_MAX_LUN, 0, __usbfd.interface, 1, &__usbfd.max_lun);
+					if(retval < 0 )
+						__usbfd.max_lun = 1;
+					else __usbfd.max_lun++;
+					maxLun = __usbfd.max_lun;
+					test_max_lun=0;
+					}
+				else j++;
+
+				if(j>=maxLun) break;
+				continue;
+				}
 
            __vid=fd->desc.idVendor;
            __pid=fd->desc.idProduct;
@@ -780,6 +842,12 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 void USBStorage_Umount(void)
 {
 if(!ums_init_done) return;
+	
+	if(__mounted && !unplug_device)
+		{
+		if(__usbstorage_start_stop(&__usbfd, __lun, 0x0)==0) // stop
+		ehci_msleep(1000);
+		}
 
 	USBStorage_Close(&__usbfd);
     __mounted=0;
