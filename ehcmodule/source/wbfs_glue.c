@@ -49,7 +49,7 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
 		
 	
 	
-        ret = USBStorage_Read_Sectors_ingame(lba,count, buf, DVD_speed_limit);
+        ret = USBStorage_Read_Sectors/*_ingame*/(lba,count, buf/*, DVD_speed_limit*/);
         if(!ret)
                 return 1;
 

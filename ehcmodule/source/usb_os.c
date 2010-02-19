@@ -5,14 +5,14 @@
 #include "ehci.h"
 static  int heap;
 
-void udelay(int usec);
-void msleep(int msec);
+void ehci_usleep(int usec);
+void ehci_msleep(int msec);
 
-extern u8 heap_space2[0x8000];
+extern u8 heap_space2[0xc000];
 
 int usb_os_init(void)
 {
-        heap = os_heap_create(heap_space2, 0x8000);
+        heap = os_heap_create(heap_space2, 0xc000);
 		//heap = os_heap_create((void*)0x13890000, 0x8000);
         if(heap<0)
         {
@@ -67,7 +67,7 @@ void *USB_Alloc(int size)
   if(ret==0)
 	{debug_printf("not enough memory! need %d\n",size);
     my_sprint("USB Alloc: not enough memory!", NULL);
-    while(1) msleep(100);
+    while(1) ehci_msleep(100);
 	}
   return ret;
 }

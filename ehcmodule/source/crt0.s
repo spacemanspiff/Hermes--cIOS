@@ -40,7 +40,7 @@
 	//.EQU	ios_thread_priority,	0x54
 	// OH0 values
 	.EQU	ios_thread_arg, 4
-	.EQU	ios_thread_priority,	0x48
+	.EQU	ios_thread_priority,	0x48 //0x48
 	.EQU	ios_thread_stacksize, 0x4000
 	
 
@@ -51,7 +51,6 @@ _start:
 	mov		r1, #0						@ char *argv[]
 	ldr		r3, =main
 	bx		r3
-
 
 	.align
 	.pool

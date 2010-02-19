@@ -42,8 +42,8 @@ void BUG(void)
 }
 #define BUG_ON(a) if(a)BUG()
 
-void udelay(int usec);
-void msleep(int msec);
+void ehci_usleep(int usec);
+void ehci_msleep(int msec);
 /*
 void udelay(int usec)
 {
@@ -132,6 +132,8 @@ int tiny_ehci_init(void)
 	/* from cIOS mload 1.6 port 1 is forced to USB 1.1. Only port 0 can work as USB 2.0         */
 
 	ehci->num_port=1;
+
+	//writel (INTR_MASK, &ehci->regs->intr_enable); //try interrupt
 
 
     /////////////////////////////////////////////////////////////////////////////////////////////

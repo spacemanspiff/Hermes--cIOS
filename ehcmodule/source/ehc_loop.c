@@ -40,6 +40,9 @@
 #include "utils.h"
 #include "libwbfs.h"
 
+void ehci_usleep(int usec);
+void ehci_msleep(int msec);
+
 #undef NULL
 #define NULL ((void *)0)
 #define IOS_OPEN				0x01
@@ -65,15 +68,17 @@
 #define USB_IOCTL_UMS_READ_STRESS		(UMS_BASE+0x5)
 
 #define USB_IOCTL_UMS_SET_VERBOSE		(UMS_BASE+0x6)
+
+#define USB_IOCTL_UMS_UMOUNT			(UMS_BASE+0x10)
 #define USB_IOCTL_UMS_WATCHDOG			(UMS_BASE+0x80)
 
 #define WBFS_BASE (('W'<<24)|('F'<<16)|('S'<<8))
 #define USB_IOCTL_WBFS_OPEN_DISC	        (WBFS_BASE+0x1)
 #define USB_IOCTL_WBFS_READ_DISC	        (WBFS_BASE+0x2)
 
-#define USB_IOCTL_WBFS_SPEED_LIMIT			(WBFS_BASE+0x80)
+//#define USB_IOCTL_WBFS_SPEED_LIMIT			(WBFS_BASE+0x80)
 
-
+void USBStorage_Umount(void);
 
 #define DEVICE "/dev/usb/ehc"
 
@@ -86,7 +91,7 @@ int verbose = 0;
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition);
 
 
-#define WATCHDOG_TIMER 1000*1000*4
+#define WATCHDOG_TIMER 1000*1000*10
 
 
 
@@ -151,7 +156,7 @@ void *WBFS_Alloc(int size)
   if(ret==0)
 	{debug_printf("WBFS not enough memory! need %d\n",size);
     my_sprint("WBFS not enough memory!", NULL);
-    while(1) msleep(100);
+    while(1) ehci_msleep(100);
 	}
   return ret;
 }
@@ -221,6 +226,7 @@ int ehc_loop(void)
 	int last_sector=0;
 
 	int must_read_sectors=0;
+	
 
     my_sprint("ehc loop entry", NULL);
 	
@@ -253,24 +259,28 @@ int ehc_loop(void)
 
         os_stop_timer(timer2_id); // stops watchdog timer
 		
+       
 
 		// timer message WATCHDOG
 		if((int) message==0x555) continue;
+		
 		if((int) message==0x666)
 		{
 		
 		if(must_read_sectors && watchdog_enable)
 			{
 			int n,m;
-			n=USBStorage_Get_Capacity((void *) &m);
-			if(m<2048) // only support sector size minor to 2048
-				{
-				
-				USBStorage_Read_Sectors(last_sector, 1, mem_sector);
-				os_restart_timer(timer2_id, WATCHDOG_TIMER);
-				last_sector+=0x1000000/m; // steps of 16MB
-				if(last_sector>n) last_sector=0;
-				}
+	
+				n=USBStorage_Get_Capacity((void *) &m);
+				if(m<2048) // only support sector size minor to 2048
+					{
+					
+					USBStorage_Read_Sectors(last_sector, 1, mem_sector);
+					os_restart_timer(timer2_id, WATCHDOG_TIMER);
+					last_sector+=0x1000000/m; // steps of 16MB
+					if(last_sector>n) last_sector=0;
+					}
+			
 			
 			
 			}
@@ -366,11 +376,18 @@ int ehc_loop(void)
                                         break;
                                 case USB_IOCTL_UMS_INIT: 
 										must_read_sectors=0;
+										
                                         result = USBStorage_Init();
-										if(result>=0) must_read_sectors=1;
+										if(result>=0) {must_read_sectors=1;watchdog_enable=1;}
                                         ums_mode = message->fd;
 										if(result>=0) my_sprint("UMS Init", NULL); else  my_sprint("UMS fail", NULL);
                                         break;
+								case USB_IOCTL_UMS_UMOUNT:
+										must_read_sectors=0;
+										watchdog_enable=0;
+                                        USBStorage_Umount();
+										result =0;
+										break;
                                 case USB_IOCTL_UMS_GET_CAPACITY:
                                         result =  USBStorage_Get_Capacity(ioctlv_voidp(vec[0]));
                                         break;
@@ -394,9 +411,9 @@ int ehc_loop(void)
                                         verbose = !verbose;
                                         result =  0;
                                         break;
-								case USB_IOCTL_WBFS_SPEED_LIMIT:
+								/*case USB_IOCTL_WBFS_SPEED_LIMIT:
 									    DVD_speed_limit=ioctlv_u32(vec[0]);
-										break;
+										break;*/
 								case USB_IOCTL_UMS_WATCHDOG:
 									    watchdog_enable=ioctlv_u32(vec[0]);
 										break;

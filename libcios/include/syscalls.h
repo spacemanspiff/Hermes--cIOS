@@ -101,7 +101,7 @@ int	os_register_event_handler(int device, int queue, int message);
 
 int	os_unregister_event_handler(int device);
 
-int os_software_IRQ(int dev);
+void os_software_IRQ(int dev);
 
 
 #ifdef DEBUG

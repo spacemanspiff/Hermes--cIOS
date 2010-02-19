@@ -40,7 +40,7 @@ int tiny_ehci_init(void);
 
 //int ehc_loop(void);
 
-u8 heap_space2[0x8000] __attribute__ ((aligned (32)));
+u8 heap_space2[0xc000] __attribute__ ((aligned (32)));
 
 /* USB timer */
 
@@ -48,7 +48,7 @@ u8 heap_space2[0x8000] __attribute__ ((aligned (32)));
 int timer1_queuehandle=-1;
 int timer1_id=-1;
 
-void usleep(u32 time)
+void ehci_usleep(u32 time)
 {
 u32 message;
 
@@ -64,14 +64,15 @@ u32 message;
 
 }
 
+
 void udelay(int usec)
 {
-	usleep((u32) usec);
+	ehci_usleep((u32) usec);
 }
 
-void msleep(int msec)
+void ehci_msleep(int msec)
 {
-	usleep(((u32) msec)*1000);
+	ehci_usleep(((u32) msec)*1000);
 }
 
 
@@ -87,14 +88,22 @@ heaphandle = os_heap_create(heapspace, sizeof(heapspace));
 void* timer1_queuespace = os_heap_alloc(heaphandle, 0x40);
 
 timer1_queuehandle = os_message_queue_create(timer1_queuespace, 16);
-timer1_id=os_create_timer(1000*1000, 100, timer1_queuehandle, 0x666);
+timer1_id=os_create_timer(1000*1000, 1000, timer1_queuehandle, 0x666);
 os_stop_timer(timer1_id);
+
+
+	//os_unregister_event_handler(DEV_EHCI);
+	
+	/*
+	// don´t work (may be EHCI irq is not supported)
+	if(os_register_event_handler(DEV_EHCI, timer1_queuehandle, 0x0)!=0) return -1;
+	os_software_IRQ(DEV_EHCI);
+	*/
 
     if(tiny_ehci_init()<0) return -1;
 
-	os_thread_set_priority(0x20);
-	
-      //  debug_printf("Custom EHC! stack at %X\n",&a);
+
+	//os_thread_set_priority(0x20);
 	
   
     ehc_loop();
