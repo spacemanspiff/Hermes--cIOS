@@ -1524,11 +1524,14 @@ s_printf("\n***************************************************\nUSBStorage_Init
 
 #endif		
 	
-
-        for(i = 0;i<1/*ehci->num_port*/; i++){
+		#ifdef USE_USB_PORT_1
+		for(i = 1;i<2/*ehci->num_port*/; i++){
+		#else
+		for(i = 0;i<1/*ehci->num_port*/; i++){
+		#endif
+        
                 struct ehci_device *dev = &ehci->devices[i];
 
-				
 
 				dev->port=i;
 				current_port=i;

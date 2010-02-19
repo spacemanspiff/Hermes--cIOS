@@ -172,8 +172,6 @@ for(n=0;n<EHCI_MAX_QTD;n++)
 for(n=0;n<EHCI_MAX_QTD;n++)
 	{
     
-   
-	
 	memset((void *) qtd, 0, sizeof(struct ehci_qtd));
 	ehci_dma_map_bidir((void *) qtd,sizeof(struct ehci_qtd));
 	
@@ -183,6 +181,7 @@ for(n=0;n<EHCI_MAX_QTD;n++)
 qtd_dummy_first=qtd;
 
 qh=qh_header;
+
 for(n=0;n<6;n++)
 	{
     

@@ -1008,7 +1008,7 @@ int main(int argc, char **argv) {
 	{
 	printf("\33[2J\n\n\n\33[42m cIOS Installer\33[40m \n\n\n");
 
-	printf("  Selected IOS for install <%i>\n\n\n", ios_index);
+	printf("  Select trucha IOS to use during installation <%i>\n\n\n", ios_index);
 	printf("  Press LEFT/RIGHT to select other different IOS\n\n");
 	printf("  Press A to continue (TAKE THE RISK).\n\n");
 	printf("  Press B to abort.\n\n");

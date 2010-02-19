@@ -11,9 +11,9 @@
 #---------------------------------------------------------------------------------
 TARGET		:=	$(notdir $(CURDIR))
 BUILD		:=	build
-SOURCES		:=	source ../libcios/source ../wii_wbfs
+SOURCES		:=	source ../libcios/source
 DATA		:=	data  
-INCLUDES	:=  include ../tinyehci ../libcios/include ../wii_wbfs
+INCLUDES	:=  include ../tinyehci ../libcios/include
 SCRIPTDIR	:=  scripts
 BIN			:=  bin
 
@@ -22,15 +22,14 @@ STRIPIOS	:=  ../stripios/stripios.exe
 LIBS		:=	
 LIBDIRS		:=
 
-export IOS_MODULE=ehc
+export IOS_MODULE=haxx
 
-CFLAGS+=-D$(IOS_MODULE) $(DEBUG)
+CFLAGS+=-D$(IOS_MODULE)
 
 #---------------------------------------------------------------------------------
 # the prefix on the compiler executables
 #---------------------------------------------------------------------------------
-#$(DEVKITARM)/bin/
-PREFIX		:= arm-eabi-
+PREFIX		:= $(DEVKITARM)/bin/arm-eabi-
 CC			:= $(PREFIX)gcc
 CXX			:= $(PREFIX)g++
 AR			:= $(PREFIX)ar
@@ -62,8 +61,7 @@ STRIPIOS := $(ROOT)/$(STRIPIOS)
 #----------------------------------------------------
 # MS Visual Studio Style Fix:
 #----------------------------------------------------
-#STYLEFIX	= 2>&1 | sed -e 's/\([a-zA-Z\.]\+\):\([0-9]\+\):\([0-9]\+:\)\?\(.\+\)/\1(\2):\4/' -e 's/undefined/error: undefined/'
-STYLEFIX	?= 
+STYLEFIX	= 2>&1 | sed -e 's/\([a-zA-Z\.]\+\):\([0-9]\+\):\([0-9]\+:\)\?\(.\+\)/\1(\2):\4/' -e 's/undefined/error: undefined/'
 
 #---------------------------------------------------------------------------------
 # automatically build a list of object files for our project
@@ -78,7 +76,7 @@ BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(ROOT)/$(dir)/*.*)))
 OFILES		:=	$(addsuffix _bin.o,$(BINFILES)) \
 					$(CPPFILES:.cpp=_cpp.o) $(CFILES:.c=_c.o) \
 					$(sFILES:.s=_s.o) $(SFILES:.S=_S.o)
-
+					
 DEPENDS		:= $(OFILES:.o=.d)
 
 VPATH		=  $(foreach dir,$(SOURCES),$(ROOT)/$(dir))
@@ -98,7 +96,7 @@ LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
 
 ARCH	=	-mcpu=arm9tdmi -mtune=arm9tdmi -mthumb -mthumb-interwork -mbig-endian
 
-CFLAGS	+= -g $(ARCH) $(INCLUDE) -fno-strict-aliasing -Wall -O3 -fomit-frame-pointer -ffast-math -fverbose-asm -Wpointer-arith -Winline -Wundef -g -ffunction-sections -fdata-sections -fno-exceptions 
+CFLAGS	=    -DUSE_USB_PORT_1 -g $(ARCH) $(INCLUDE) -fno-strict-aliasing -Wall -O3 -fomit-frame-pointer -ffast-math -fverbose-asm -Wpointer-arith -Winline -Wundef -g -ffunction-sections -fdata-sections -fno-exceptions 
 CFLAGS	+= -Wstrict-prototypes
 
 
@@ -109,14 +107,15 @@ LDFLAGS	= -g $(ARCH) -specs=$(SPECS) -T$(LINKSCRIPT)  $(LIBPATHS) $(LIBS) -Wl,--
 
 $(OUTPUT).elf: $(TARGET).elf
 	@echo stripping $(notdir $@)
-	@$(STRIPIOS) $< $@
-
-
+	@$(STRIPIOS) $< $@ strip 0x13700000
+	cp -f $(OUTPUT).elf ../../cios_installer/data/$(TARGET).elf
+	
+	
 %.elf: $(OFILES)
 	@echo linking $(notdir $@)
 	@$(LD) -g -o $@ $(OFILES) $(LDFLAGS) $(STYLEFIX)
 
-
+	
 %_cpp.o : %.cpp
 	@echo $(notdir $<)
 	@$(CXX) -MMD -MF $*_cpp.d $(CFLAGS) -c $< -o$@ $(STYLEFIX)
@@ -134,7 +133,7 @@ $(OUTPUT).elf: $(TARGET).elf
 	@$(bin2o)
 
 -include $(DEPENDS)
-
+	
 define bin2o
 	@echo  -e "\t.section .rodata\n\t.align 4\n\t.global $(*)\n\t.global $(*)_end\n$(*):\n\t.incbin \"$(subst /,\\\\\\\\,$(shell echo $< | sed 's=/==;s=/=:/='))\"\n$(*)_end:\n" > $@.s
 	@$(CC)  $(ASFLAGS) $(AFLAGS) -c $@.s -o $@

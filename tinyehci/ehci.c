@@ -524,7 +524,11 @@ u32 usb_timeout=1000*1000;
 
 int mode_int=0;
 
+#ifdef USE_USB_PORT_1
+u32 current_port=1;
+#else
 u32 current_port=0;
+#endif
 
 
 struct ehci_qh	*in_qh=NULL;   // bulk in
@@ -1337,6 +1341,7 @@ int ehci_reset_port(int port)
 
 	return retval;
 }
+
 int ehci_reset_port2(int port)
 {
 u32 __iomem	*status_reg = &ehci->regs->port_status[port];
@@ -1394,7 +1399,11 @@ int ehci_discover(void)
         int i,ret;
 		u32 status;
         // precondition: the ehci should be halted
+		#ifdef USE_USB_PORT_1
+		for(i = 1;i<2/*ehci->num_port*/; i++){
+		#else
         for(i = 0;i<1/*ehci->num_port*/; i++){
+		#endif
                 struct ehci_device *dev = &ehci->devices[i];
                 dev->port = i;
 
@@ -1440,8 +1449,14 @@ int ehci_release_ports(void)
 int ehci_open_device(int vid,int pid,int fd)
 {
         int i;
-        for(i=0;i<ehci->num_port;i++)
-        {
+       // for(i=0;i<ehci->num_port;i++)
+       // {
+		#ifdef USE_USB_PORT_1
+		i=1;
+		#else
+		i=0;
+		#endif
+
                 //ehci_dbg("try device: %d\n",i);
                 if(ehci->devices[i].fd == 0 &&
                    le16_to_cpu(ehci->devices[i].desc.idVendor) == vid &&
@@ -1451,7 +1466,7 @@ int ehci_open_device(int vid,int pid,int fd)
                         ehci->devices[i].fd = fd;
                         return fd;
                 }
-        }
+        //}
         return -6;
 }
 int ehci_close_device(struct ehci_device *dev)
@@ -1463,8 +1478,15 @@ int ehci_close_device(struct ehci_device *dev)
  void * ehci_fd_to_dev(int fd)
 {
         int i;
-        for(i=0;i<ehci->num_port;i++)
-        {
+       // for(i=0;i<ehci->num_port;i++)
+	    #ifdef USE_USB_PORT_1
+		i=1;
+		#else
+		i=0;
+		#endif
+       
+		{
+		  
                 struct ehci_device *dev = &ehci->devices[i];
 
 				return dev; // return always device[0]
@@ -1484,7 +1506,12 @@ int ehci_close_device(struct ehci_device *dev)
 int ehci_get_device_list(u8 maxdev,u8 b0,u8*num,u16*buf)
 {
         int i,j = 0;
-        for(i=0;i<ehci->num_port && j<maxdev ;i++)
+      //  for(i=0;i<ehci->num_port && j<maxdev ;i++)
+	    #ifdef USE_USB_PORT_1
+		i=1;
+		#else
+		i=0;
+		#endif
         {
                 struct ehci_device *dev = &ehci->devices[i];
                 if(dev->id != 0){

@@ -199,12 +199,26 @@ int tiny_ehci_init(void)
 	
 	
     ehci_release_ports(); //quickly release none usb2 port
-    ehci_writel( PORT_OWNER, &ehci->regs->port_status[1]); // force port 1 to work as USB 1.1
+
+	#ifdef USE_USB_PORT_1
+
+    ehci_writel( PORT_OWNER, &ehci->regs->port_status[0]); // force port 0 to work as USB 1.1
+
+    for(n=0;n<3;n++)
+		{
+		if(!ehci_adquire_port(1)) break;
+		}
+
+	#else
+	
+	ehci_writel( PORT_OWNER, &ehci->regs->port_status[1]); // force port 1 to work as USB 1.1
 
     for(n=0;n<3;n++)
 		{
 		if(!ehci_adquire_port(0)) break;
 		}
+	
+	#endif
 
 	return 0;
 }
