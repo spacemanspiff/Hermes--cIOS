@@ -91,7 +91,7 @@ static bool first_access=true;
 static bool disable_hardreset=false;
 
 static usbstorage_handle __usbfd;
-static u8 __lun = 0;
+static u8 __lun = 16;
 static u8 __mounted = 0;
 static u16 __vid = 0;
 static u16 __pid = 0;
@@ -576,9 +576,12 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
                 if(/*conf != dev->configuration &&*/ USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0)
                         goto end;
                 if(dev->altInterface != 0 && USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
-                        goto end;				
-				if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
                         goto end;
+				if(__lun != 16)
+					{
+					if(USBStorage_MountLUN(&__usbfd, __lun) < 0)
+                        goto end;
+					}
         }
         debug_printf("usbstorage reset..\n");
 	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_HOST2DEVICE | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_RESET, 0, dev->interface, 0, NULL);
@@ -620,6 +623,7 @@ static s32 __usbstorage_reset(usbstorage_handle *dev,int hard_reset)
 	return retval;
 
 end:
+	if(retval==-ENODEV) return retval;
 #ifdef HOMEBREW
 	if(disable_hardreset) return retval;
         if(retry < 1){ //only 1 hard reset
@@ -630,7 +634,7 @@ end:
                 goto retry;
         }        
 #else
-        if(retry < 1){
+        if(retry < 5){
                 ehci_msleep(100);
                 debug_printf("retry with hard reset..\n");
                 
@@ -669,6 +673,8 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 	usb_configurationdesc *ucd;
 	usb_interfacedesc *uid;
 	usb_endpointdesc *ued;
+	
+	__lun= 16; // select bad LUN
 
 	max_lun = USB_Alloc(1);
 	if(max_lun==NULL) return -ENOMEM;
@@ -1221,7 +1227,7 @@ if(!ums_init_done) return;
 		ehci_msleep(1000);
 		}
 
-	USBStorage_Close(&__usbfd);
+	USBStorage_Close(&__usbfd);__lun= 16;
     __mounted=0;
 	ums_init_done=0;
 	unplug_device=0;
