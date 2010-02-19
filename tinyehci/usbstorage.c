@@ -1421,7 +1421,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 		   #endif
 
 		  
-           if(retval == USBSTORAGE_ETIMEDOUT || retval==-ENODEV)
+           if((retval == USBSTORAGE_ETIMEDOUT || retval==-ENODEV) && j!=0)
            { 
                USBStorage_Reset(&__usbfd);
 			   try_status=-121;
