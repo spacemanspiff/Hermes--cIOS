@@ -62,16 +62,39 @@ static u32 message;
 
 }
 
-
-void udelay(int usec)
-{
-	ehci_usleep((u32) usec);
-}
-
 void ehci_msleep(int msec)
 {
 	ehci_usleep(((u32) msec)*1000);
 }
+
+
+#define get_timer()  (*(((volatile u32*)0x0D800010)))
+
+void ehci_udelay(int usec)
+{
+        u32 tmr,temp;
+		u32 time_usec;
+
+        tmr = get_timer();
+        time_usec=2*usec;
+		
+        while (1) {temp=get_timer()-tmr;if(((int) temp)<0) tmr = get_timer(); if(((int)temp) > time_usec) break;}
+		
+}
+void ehci_mdelay(int msec)//@todo not really sleeping..
+{
+        u32 tmr,temp;
+		u32 time_usec;
+
+        tmr = get_timer();
+        time_usec=2048*msec;
+
+        while (1) {temp=get_timer()-tmr;if(((int) temp)<0) tmr = get_timer(); if(((int)temp) > time_usec) break;}
+		
+
+}
+
+
 
 
 int ehc_loop(void);

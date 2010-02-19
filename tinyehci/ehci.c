@@ -28,7 +28,7 @@
 
 
 /* magic numbers that can affect system performance */
-#define	EHCI_TUNE_CERR		3	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
+#define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
 #define	EHCI_TUNE_RL_HS		4	/* nak throttle; see 4.9 */
 #define	EHCI_TUNE_RL_TT		0
 #define	EHCI_TUNE_MULT_HS	1	/* 1-3 transactions/uframe; 4.10.3 */
@@ -177,6 +177,8 @@ int handshake_mode=0; // Modes: 0-> Transfer 1-> initialize 2->Test
 int handshake_us=0;
 
 #define get_timer()  (*(((volatile u32*)0x0D800010)))
+
+void ehci_mdelay(int msec);
 
 static int handshake (void __iomem *pstatus, void __iomem *ptr,
 		      u32 mask, u32 done, int usec , u32 or_flags)
@@ -630,7 +632,7 @@ u32 usb_timeout=1000*1000;
         ehci->async->hw_next = QH_NEXT(qh->qh_dma);
         ehci_dma_map_bidir(ehci->async,sizeof(struct ehci_qh));
 
-        retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->status,STS_INT,STS_INT,usb_timeout, STS_RECL|STS_IAA|STS_INT);
+        retval = handshake(&ehci->regs->port_status[dev->port],&ehci->regs->status,STS_INT,STS_INT,usb_timeout, 0/*STS_RECL|STS_IAA|STS_INT*/);
 		// from 2.6
 		if(retval<0 && handshake_mode!=2) 
 			{
@@ -878,18 +880,18 @@ void ehci_adquire_port(int port)
 		status ^= PORT_OWNER;
 	status &= ~(PORT_PE | PORT_RWC_BITS);
 	ehci_writel(status, status_reg);	
-	ehci_msleep(5);
+	ehci_mdelay(5);
 	status = ehci_readl(status_reg);
 	if(status & PORT_OWNER)
 		status ^= PORT_OWNER;
 	status &= ~(PORT_PE | PORT_RWC_BITS);
 	ehci_writel(status, status_reg);	
-	ehci_msleep(5);
+	ehci_mdelay(5);
 	
 
 	//enable port	
 	ehci_writel( 0x1801,status_reg);
-    ehci_msleep(5);
+    ehci_mdelay(5);
 }
 int ehci_reset_usb_port(int port)
 {
@@ -1024,28 +1026,32 @@ int ehci_init_port(int port)
     
         // sdlog("USB_REQ_GETDESCRIPTOR ok\n");
 
-        int cnt=2;
+        int cnt=0;
         do{
-	        ehci_msleep(100);
+	        ehci_msleep(50);
 	        // sdlog("trying USB_REQ_SETADDRESS: %d\n",cnt);
 	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_HOST2DEVICE,
-	                                      USB_REQ_SETADDRESS,cnt,0,0,0);
+	                                      USB_REQ_SETADDRESS,port+1,0,0,0);
 	        if (retval < 0) {
 	        		//my_sprint("unable to set device addr...",NULL);
 	                ehci_dbg ( "unable to set device addr...\n");	                
 	                retval=-8000-cnt;
 	                // sdlog("unable to set device addr: %d\n",cnt);
 	                //return retval;
-	        }
+	        cnt++;
+			}
+
 	        //else  sdlog("USB_REQ_SETADDRESS ok: %d\n",cnt);
 	
 	        dev->toggles = 0;
 	
-	        dev->id = cnt;
+	        dev->id = port+1;
+
+			if(retval>=0) break;
 	
 	        USB_ClearHalt(dev, 0);
 	        //USB_ClearHalt(dev, 0x80);
-			ehci_msleep(100);
+			ehci_msleep(50);
 	        // sdlog("checking USB_REQ_GETDESCRIPTOR\n");
 	        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
 	                             USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
@@ -1058,9 +1064,11 @@ int ehci_init_port(int port)
 	                retval=-2242;
 	                dev->id =0;
 	                //return retval;
-	        }//else sdlog("ok checking USB_REQ_GETDESCRIPTOR\n");
+	        }
+			else {retval=-1;continue;}
+			//else sdlog("ok checking USB_REQ_GETDESCRIPTOR\n");
         
-        }while(retval<0 && cnt<20);
+        }while(retval<0 && cnt<5);
         
         //if(retval>=0)sdlog("init ok\n");
         return retval;
