@@ -722,46 +722,80 @@ int ehci_reset_port_old(int port)
         u32 __iomem	*status_reg = &ehci->regs->port_status[port];
         struct ehci_device *dev = &ehci->devices[port];
         u32 status = ehci_readl(status_reg);
-        int retval = 0;
+        int retval = 0,i,f;
         dev->id = 0;
-        if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
+
+       
+		if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
         {
                 ehci_writel( PORT_OWNER,status_reg);
                 ehci_dbg ( "port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
                 return -ENODEV;// no USB2 device connected
         }
         ehci_dbg ( "port %d has usb2 device connected! reset it...\n", port);
-        ehci_writel( 0x1803,status_reg);
-        ehci_msleep(100);
-        ehci_writel( 0x1903,status_reg);
+
+		f=handshake_mode;
+		handshake_mode=1;
+
+		for(i=0;i<4;i++)  //4 retries
+		{ 
+		u32 status = ehci_readl(status_reg);
+		status &= ~PORT_PE;
+		status |= PORT_RESET | PORT_POWER;       
+        ehci_writel( status,status_reg);
+        ehci_msleep(100);// wait 60ms for the reset sequence
+        status=ehci_readl(status_reg);
+        status &= ~(PORT_RWC_BITS | PORT_RESET); /* force reset to complete */
+		ehci_writel( status,status_reg);
+		ehci_msleep(100);
+		status = ehci_readl(status_reg);
+		if ((PORT_OWNER&status) || !(PORT_CONNECT&status) || !(status & PORT_PE) || !(status & PORT_POWER))
+			{
+			/*ehci_writel( 0x1803,status_reg);
+			ehci_msleep(100);
+			ehci_writel( 0x1903,status_reg);
+			ehci_msleep(100);// wait 50ms for the reset sequence
+			ehci_writel( 0x1001,status_reg);
+			ehci_msleep(50);*/
+			retval=-1;
+			continue;
+			}
         //ehci_writel( PORT_OWNER|PORT_POWER|PORT_RESET,status_reg);
-        ehci_msleep(100);// wait 50ms for the reset sequence
-        ehci_writel( 0x1001,status_reg);
+       
+       
         //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
         retval = handshake(status_reg, status_reg,
                            PORT_RESET, 0, 750);
-        if (retval != 0) {
-                ehci_dbg ( "port %d reset error %d\n",
-                          port, retval);
-                return retval;
-        }
-        ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
-        ehci_msleep(100);
-        // now the device has the default device id
-        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
+        if (retval == 0) 
+			{
+               /* ehci_dbg ( "port %d reset error %d\n",
+                          port, retval);*/
+               
+			ehci_dbg ( "port %d reseted status:%04x...\n", port,ehci_readl(status_reg));
+			ehci_msleep(100);
+			// now the device has the default device id
+			retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_DEVICE2HOST,
                              USB_REQ_GETDESCRIPTOR,USB_DT_DEVICE<<8,0,sizeof(dev->desc),&dev->desc);
         
-        if (retval < 0) {
-                ehci_dbg ( "unable to get device desc...\n");
+			if (retval >= 0) 
+				{
+					
+
+				retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_HOST2DEVICE,
+										  USB_REQ_SETADDRESS,port+1,0,0,0);
+				
+				if(retval>=0)  break;
+				}
+			}
+		}
+        
+		handshake_mode=f;
+
+		if (retval < 0) {
+           
                 return retval;
         }
 
-        retval = ehci_control_message(dev,USB_CTRLTYPE_DIR_HOST2DEVICE,
-                                      USB_REQ_SETADDRESS,port+1,0,0,0);
-        if (retval < 0) {
-                ehci_dbg ( "unable to set device addr...\n");
-                return retval;
-        }
         dev->toggles = 0;
 
         dev->id = port+1;
@@ -789,78 +823,54 @@ void ehci_adquire_port(int port)
 	ehci_writel( 0x1001,status_reg);
     ehci_msleep(5);
 }
-
 int ehci_reset_usb_port(int port)
 {
+    u32 __iomem   *status_reg = &ehci->regs->port_status[port];
+    u32 status = ehci_readl(status_reg);
+   
+    int i,f, retval = 0;
+   
+    if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
+    {
+            ehci_writel( PORT_OWNER,status_reg);
+            return -ENODEV;// no USB2 device connected
+    }
+       
+	f=handshake_mode;
+    handshake_mode=1;
 
-        u32 __iomem	*status_reg = &ehci->regs->port_status[port];
-        //struct ehci_device *dev = &ehci->devices[port];        
-        u32 status = ehci_readl(status_reg);
-        
-        int retval = 0;
-        
-        if ((PORT_OWNER&status) || !(PORT_CONNECT&status))
-        {
-        		//char cad[128];
-                ehci_writel( PORT_OWNER,status_reg);
-                ehci_dbg ( "port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
-                // sdlog("port %d had no usb2 device connected at startup %X \n", port,ehci_readl(status_reg));
-                //debug_sprintf(cad," usb not conected/owner port: %d status: %04X\n",port,status);
-        		//my_sprint(cad,NULL);
-                return -ENODEV;// no USB2 device connected
-        }
-        
-        //char cad[128];
-        //char str_log[1024];
-        //str_log[0]='\0';
-        ehci_dbg ( "port %d has usb2 device connected! reset it...\n", port);
-        // sdlog("status1: %04X\n",status);
-        //my_sprint(log,NULL);
-		status &= ~PORT_PE;
-		status |= PORT_RESET;        
+    for(i=0;i<4;i++)  //4 retries
+    {       
+      status &= ~PORT_PE;
+      status |= PORT_RESET;       
         ehci_writel( status,status_reg);
-        ehci_msleep(50);// wait 50ms for the reset sequence
+        ehci_msleep(60);// wait 60ms for the reset sequence
         status=ehci_readl(status_reg);
-        //debug_sprintf(cad," status2: %04X\n",status);strcat(log,cad);
-        // sdlog("status2: %04X\n",status);
-        status &= ~PORT_RESET;
-        ehci_writel( status,status_reg);
-        //debug_sprintf(cad," status3: %04X\n",ehci_readl(status_reg));strcat(log,cad);
-        // sdlog("status3: %04X\n",ehci_readl(status_reg));
-        //ehci_writel( ehci_readl(status_reg)& (~PORT_RESET),status_reg);
+        status &= ~(PORT_RWC_BITS | PORT_RESET); /* force reset to complete */
+      ehci_writel( status,status_reg);
+        ehci_msleep(50);                     
         retval = handshake(status_reg, status_reg,
                            PORT_RESET, 0, 750);
         if (retval != 0) {
-                ehci_dbg ( "port %d reset error %d\n",
-                          port, retval);
                 status=ehci_readl(status_reg);
-                //debug_sprintf(cad,"handshake PORT_RESET error: %04x\n",status); strcat(log,cad);
-				// sdlog("handshake PORT_RESET error: %04x\n",status);   
-				//my_sprint(log,NULL);
-				retval=-2000;
-                return retval;
+				handshake_mode=f;
+                return -2000;
         }
         status=ehci_readl(status_reg);
-        ehci_dbg ( "port %d reseted status:%04x...\n", port,status);
-        
-		//debug_sprintf(cad," port reseted status: %04x\n",status);strcat(log,cad);
-		// sdlog("port reseted status: %04x\n",status);
-
-	if (!(status & PORT_PE)) {
-	         // that means is low speed device so release
-			status |= PORT_OWNER;
-			status &= ~PORT_RWC_BITS;
-			ehci_writel( status, status_reg);		
-	        ehci_msleep(10);
-	        status = ehci_readl(status_reg);   
-			//debug_sprintf(cad,"PORT_PE, release USB11 status: %04x\n",status); strcat(log,cad);
-			// sdlog("PORT_PE, release USB11 status: %04x\n",status);   
-			//my_sprint(log,NULL);
-	        return retval;	 
-	}
-	//my_sprint(log,NULL);ehci_msleep(50);
-	return retval;	
+      if (status & PORT_PE) break; //port enabled
+   }
+  handshake_mode=f;    
+   if (!(status & PORT_PE)) {
+            // that means is low speed device so release
+         status |= PORT_OWNER;
+         status &= ~PORT_RWC_BITS;
+         ehci_writel( status, status_reg);      
+           ehci_msleep(10);
+           status = ehci_readl(status_reg);   
+   }
+   return retval;   
 }
+
 
 int ehci_init_port(int port)
 {	

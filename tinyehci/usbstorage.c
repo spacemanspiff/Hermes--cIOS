@@ -468,6 +468,7 @@ static s32 __cycle(usbstorage_handle *dev, u8 lun, u8 *buffer, u32 len, u8 *cb, 
 
 static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop)
 {
+	#if 0
 	s32 retval;
 	u8 cmd[16];
 	
@@ -487,6 +488,9 @@ static s32 __usbstorage_start_stop(usbstorage_handle *dev, u8 lun, u8 start_stop
 					retval = USBSTORAGE_ESENSE;*/
 //error:
 	return retval;
+	#else
+	return 0;
+	#endif
 }
 
 
@@ -932,10 +936,12 @@ s32 USBStorage_GetMaxLUN(usbstorage_handle *dev)
 s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 {
 	s32 retval;
+    int f=handshake_mode;
 
 	if(lun >= dev->max_lun)
 		return -EINVAL;
 	usb_timeout=1000*1000;
+	handshake_mode=1;
 
 	retval= __usbstorage_start_stop(dev, lun, 1);
 
@@ -943,22 +949,24 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 	   s_printf("    start_stop cmd ret %i\n",retval);
 	#endif
     if(retval < 0)
-		return retval;
+		goto ret;
 	
 	retval = __usbstorage_clearerrors(dev, lun);
 	if(retval < 0)
-		return retval;
+		goto ret;
 	usb_timeout=1000*1000;
 	retval = USBStorage_Inquiry(dev, lun);
 	#ifdef MEM_PRINT
 	   s_printf("    Inquiry ret %i\n",retval);
 	#endif
 	if(retval < 0)
-		return retval;
+		goto ret;
 	retval = USBStorage_ReadCapacity(dev, lun, &dev->sector_size[lun], &dev->n_sector[lun]);
 	#ifdef MEM_PRINT
 	   s_printf("    ReadCapacity ret %i\n",retval);
 	#endif
+ret:
+	handshake_mode=f;
 	return retval;
 }
 
