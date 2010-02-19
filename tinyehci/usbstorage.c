@@ -57,9 +57,15 @@ distribution.
 #define	SCSI_SENSE_HARDWARE_ERROR	0x04
 
 #define	USB_CLASS_MASS_STORAGE		0x08
-#define	MASS_STORAGE_ATA_COMMANDS	0x02
-#define	MASS_STORAGE_QIC_COMMANDS	0x05
-#define	MASS_STORAGE_SCSI_COMMANDS	0x06
+#define USB_CLASS_HUB				0x09
+
+#define	MASS_STORAGE_RBC_COMMANDS		0x01
+#define	MASS_STORAGE_ATA_COMMANDS		0x02
+#define	MASS_STORAGE_QIC_COMMANDS		0x03
+#define	MASS_STORAGE_UFI_COMMANDS		0x04
+#define	MASS_STORAGE_SFF8070_COMMANDS	0x05
+#define	MASS_STORAGE_SCSI_COMMANDS		0x06
+
 #define	MASS_STORAGE_BULK_ONLY		0x50
 
 #define USBSTORAGE_GET_MAX_LUN		0xFE
@@ -397,6 +403,8 @@ return 0;
 
 static usb_devdesc _old_udd; // used for device change protection
 
+s32 try_status=0;
+
 s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 {
 	s32 retval = -1;
@@ -431,23 +439,26 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 		}
 	
 	_old_udd= udd;
-
+	try_status=-128;
 	for(iConf = 0; iConf < udd.bNumConfigurations; iConf++)
 	{
 		ucd = &udd.configurations[iConf];		
 		for(iInterface = 0; iInterface < ucd->bNumInterfaces; iInterface++)
 		{
 			uid = &ucd->interfaces[iInterface];
-                        debug_printf("interface %d, class:%x subclass %x protocol %x\n",iInterface,uid->bInterfaceClass,uid->bInterfaceSubClass, uid->bInterfaceProtocol);
+                  //      debug_printf("interface %d, class:%x subclass %x protocol %x\n",iInterface,uid->bInterfaceClass,uid->bInterfaceSubClass, uid->bInterfaceProtocol);
 			if(uid->bInterfaceClass    == USB_CLASS_MASS_STORAGE &&
-			   (uid->bInterfaceSubClass == MASS_STORAGE_SCSI_COMMANDS 
-                            || uid->bInterfaceSubClass == MASS_STORAGE_ATA_COMMANDS
-                            || uid->bInterfaceSubClass == MASS_STORAGE_QIC_COMMANDS)&&
-			   uid->bInterfaceProtocol == MASS_STORAGE_BULK_ONLY)
+			   (uid->bInterfaceSubClass == MASS_STORAGE_SCSI_COMMANDS
+				|| uid->bInterfaceSubClass == MASS_STORAGE_RBC_COMMANDS
+                || uid->bInterfaceSubClass == MASS_STORAGE_ATA_COMMANDS
+                || uid->bInterfaceSubClass == MASS_STORAGE_QIC_COMMANDS
+				|| uid->bInterfaceSubClass == MASS_STORAGE_UFI_COMMANDS
+				|| uid->bInterfaceSubClass == MASS_STORAGE_SFF8070_COMMANDS) &&
+			   uid->bInterfaceProtocol == MASS_STORAGE_BULK_ONLY && uid->bNumEndpoints>=2)
 			{
-				if(uid->bNumEndpoints < 2)
-					continue;
-                                if(uid->bInterfaceSubClass != MASS_STORAGE_SCSI_COMMANDS)
+				
+				dev->ata_protocol = 0;
+                if(uid->bInterfaceSubClass != MASS_STORAGE_SCSI_COMMANDS || uid->bInterfaceSubClass != MASS_STORAGE_RBC_COMMANDS)
                                         dev->ata_protocol = 1;
 				dev->ep_in = dev->ep_out = 0;
 				for(iEp = 0; iEp < uid->bNumEndpoints; iEp++)
@@ -472,14 +483,32 @@ s32 USBStorage_Open(usbstorage_handle *dev, struct ehci_device *fd)
 			}
 		else
 			{
+
+
 			if(uid->endpoints != NULL)
 						USB_Free(uid->endpoints);uid->endpoints= NULL;
 			if(uid->extra != NULL)
 						USB_Free(uid->extra);uid->extra=NULL;
+
+			if(uid->bInterfaceClass == USB_CLASS_HUB)
+				{
+				retval = USBSTORAGE_ENOINTERFACE;
+				try_status= -20000;
+
+				USB_FreeDescriptors(&udd);
+        
+				goto free_and_return;
+				}
+
+			if(uid->bInterfaceClass    == USB_CLASS_MASS_STORAGE &&
+			   uid->bInterfaceProtocol == MASS_STORAGE_BULK_ONLY && uid->bNumEndpoints>=2)
+					{
+					try_status= -(10000+uid->bInterfaceSubClass);
+					}
 			}
 		}
 	}
-
+    
 	USB_FreeDescriptors(&udd);
 	retval = USBSTORAGE_ENOINTERFACE;
         debug_printf("cannot find any interface\n");
@@ -489,15 +518,17 @@ found:
 	USB_FreeDescriptors(&udd);
 
 	retval = USBSTORAGE_EINIT;
-	
+	try_status=-1201;
 	if(USB_GetConfiguration(dev->usb_fd, &conf) < 0)
 		goto free_and_return;
-	
+	try_status=-1202;
 	if(conf != dev->configuration && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0)
 		goto free_and_return;
+	try_status=-1203;
 	if(dev->altInterface != 0 && USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
 		goto free_and_return;
-	
+
+	try_status=-1204;
 	
 	retval = USBStorage_Reset(dev);
 	if(retval < 0)
@@ -534,7 +565,7 @@ found:
 
 	dev->buffer = USB_Alloc(MAX_TRANSFER_SIZE+16);
 	
-	if(dev->buffer == NULL) retval = -ENOMEM;
+	if(dev->buffer == NULL) {retval = -ENOMEM;try_status=-1205;}
 	else retval = USBSTORAGE_OK;
 
 free_and_return:
@@ -768,7 +799,7 @@ s32 USBStorage_Read_Stress(u32 sector, u32 numSectors, void *buffer)
 
 }
 
-s32 try_status=0;
+
 
 // temp function before libfat is available */
 s32 USBStorage_Try_Device(struct ehci_device *fd)
