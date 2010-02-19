@@ -1174,7 +1174,7 @@ static s32 __USBStorage_Read(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_s
 	if(lun >= dev->max_lun || dev->sector_size[lun] == 0 || !dev)
 		return -EINVAL;
     is_read_write=1;
-	retval = __cycle(dev, lun, buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL, 20);
+	retval = __cycle(dev, lun, buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 0, &status, NULL, 6);
 	is_read_write=0;
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
@@ -1201,7 +1201,7 @@ static s32 __USBStorage_Write(usbstorage_handle *dev, u8 lun, u32 sector, u16 n_
 		return -EINVAL;
 
 	is_read_write=1;
-	retval = __cycle(dev, lun, (u8 *)buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL,20);
+	retval = __cycle(dev, lun, (u8 *)buffer, n_sectors * dev->sector_size[lun], cmd, sizeof(cmd), 1, &status, NULL,6);
 	is_read_write=0;
 	if(retval > 0 && status != 0)
 		retval = USBSTORAGE_ESTATUS;
@@ -1523,13 +1523,14 @@ int retval=1;
 
 				 status=ehci_readl(&ehci->regs->port_status[0]);
 
-				 if(ret<0 || (status & 0x3905)!=0x1005 )
+				 /*if(ret<0 || (status & 0x3905)!=0x1005 )
 					{
 					ret=ehci_reset_port(0);
 					ehci_msleep(60);
 					
 					status=ehci_readl(&ehci->regs->port_status[0]);
 					}
+					*/
 
 				 if(ret>=0 && (status & 0x3905)==0x1005 )	
 					{
