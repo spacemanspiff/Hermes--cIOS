@@ -145,6 +145,46 @@ _ehci_vector_:
 	ldr	r2,=ehci_vector
 	bx	r2
 
+	.align 4
+	.code 32
+	.global read_access_perm
+read_access_perm:
+	mrc     p15, 0, r0,c3,c0
+	bx	lr
+
+	.align 4
+	.code 32
+	.global write_access_perm
+write_access_perm:
+	mcr     p15, 0, r0,c3,c0
+	bx	lr
+        
+	.align 4
+
+/*******************************************************************************
+ *
+ * DRIVER CONFIGURATION AREA
+ *
+ *******************************************************************************
+ */
+
+	.string "EHC_CFG"
+	.long 0x12340001
+	.global use_usb_port1
+use_usb_port1:
+	.byte 0x0
+
+	.global use_reset_bulk
+use_reset_bulk:
+	.byte 0x0
+
+	.global force_get_max_lun
+force_get_max_lun:
+	.byte 0x0
+	
+	.global use_alternative_timeout
+use_alternative_timeout:
+	.byte 0x0
 	
 	.align
 	.pool

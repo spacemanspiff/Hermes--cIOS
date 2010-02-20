@@ -51,7 +51,7 @@ u32 swi_mload_get_syscall_base(void);
 /*
 	swi_mload_get_ios_base: gets the ios base (FFS, ES, IOSP) used to create this cIOS
 
-	return: the address
+	return: the IOS base version
 
 */
 

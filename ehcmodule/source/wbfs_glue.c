@@ -43,7 +43,7 @@ u32 n_sec,sec_size;
 
 
 
-static int read_sector(void *ign,u32 lba,u32 count,void*buf)
+/*static*/ int read_sector(void *ign,u32 lba,u32 count,void*buf)
 {
         int ret;
 		
@@ -60,11 +60,46 @@ static int read_sector(void *ign,u32 lba,u32 count,void*buf)
         return 0;
 }
 
+static wbfs_disc_t *wbfs_disc=NULL;
+
+u8 *disc_buff=NULL;
+extern u32 current_disc_lba;
+
+
+void wbfs_perform_disc(void)
+{
+	if(wbfs_disc) 
+		{
+		
+		wbfs_close_disc(wbfs_disc);wbfs_disc=NULL;
+		}
+	if(!disc_buff) {disc_buff=WBFS_Alloc(0x8020);}
+
+	current_disc_lba=0xffffffff;
+	
+}
+static wbfs_t *p=NULL;
+
+void release_wbfs_mem(void)
+{
+  if(disc_buff) WBFS_Free(disc_buff);disc_buff=NULL;
+
+  if(wbfs_disc) 
+	{	
+	wbfs_close_disc(wbfs_disc);wbfs_disc=NULL;
+	}
+  if(p)
+	wbfs_close(p);p= NULL;
+
+}
+
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 {
-        static wbfs_t *p=NULL;
-		static wbfs_disc_t *d=NULL;
+        
+		
 		static u8 old_discid[6]="";
+
+		if(disc_buff) WBFS_Free(disc_buff);disc_buff=NULL;
 		
 		// opens the hd only is is not opened
 		if(!p)
@@ -79,18 +114,18 @@ wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
                 return NULL;
 			}
 		// close previously disc opened except if discid is equal
-		if(d) 
+		if(wbfs_disc) 
 			{
 			
-			if(!memcmp(old_discid,discid,6)) return d;
+			if(!memcmp(old_discid,discid,6)) return wbfs_disc;
 			
-			wbfs_close_disc(d);d=NULL;
+			wbfs_close_disc(wbfs_disc);wbfs_disc=NULL;
 			}
 
         // open the disc
-        d=wbfs_open_disc(p, discid);
+        wbfs_disc=wbfs_open_disc(p, discid);
 
-		if(d) memcpy(old_discid,discid,6);
+		if(wbfs_disc) memcpy(old_discid,discid,6);
 
-        return d;
+        return wbfs_disc;
 }

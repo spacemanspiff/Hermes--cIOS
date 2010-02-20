@@ -41,8 +41,19 @@
 #include "libwbfs.h"
 #include "ehci_interrupt.h"
 
+#undef ehci_writel
+#define ehci_writel(v,a) do{*((volatile u32*)(a))=(v);}while(0)
+
+									
+
 void ehci_usleep(int usec);
 void ehci_msleep(int msec);
+
+int ehci_release_externals_usb_ports(void);
+
+void off_callback_hand(u32 flags);
+
+int disable_ehc=0;
 
 #undef NULL
 #define NULL ((void *)0)
@@ -75,10 +86,14 @@ void ehci_msleep(int msec);
 
 #define USB_IOCTL_UMS_TESTMODE			(UMS_BASE+0x81)
 
+#define USB_IOCTL_UMS_OFF				(UMS_BASE+0x82)
+
 
 #define WBFS_BASE (('W'<<24)|('F'<<16)|('S'<<8))
 #define USB_IOCTL_WBFS_OPEN_DISC	        (WBFS_BASE+0x1)
 #define USB_IOCTL_WBFS_READ_DISC	        (WBFS_BASE+0x2)
+#define USB_IOCTL_WBFS_READ_DIRECT_DISC	    (WBFS_BASE+0x3)
+#define USB_IOCTL_WBFS_STS_DISC				(WBFS_BASE+0x4)
 
 //#define USB_IOCTL_WBFS_SPEED_LIMIT			(WBFS_BASE+0x80)
 
@@ -91,10 +106,13 @@ int verbose = 0;
 #define ioctlv_u8(a) (*((u8*)(a).data))
 #define ioctlv_u16(a) (*((u16*)(a).data))
 #define ioctlv_u32(a) (*((u32*)(a).data))
+#define ioctlv_len(a) (a).len
 #define ioctlv_voidp(a) (a).data
 
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition);
 
+
+int USBStorage_DVD_Test(void);
 
 #define WATCHDOG_TIMER 1000*1000*10
 
@@ -152,7 +170,7 @@ extern int heaphandle;
 
 void msleep(int msec);
 
-u8 mem_sector[2048] __attribute__ ((aligned (32)));
+u8 mem_sector[4096] __attribute__ ((aligned (32)));
 
 void *WBFS_Alloc(int size)
 {
@@ -165,9 +183,150 @@ void *WBFS_Alloc(int size)
 	}
   return ret;
 }
+
 void WBFS_Free(void *ptr)
 {
         return os_heap_free(heaphandle, ptr);
+}
+
+extern u8 *disc_buff;
+
+u32 last_disc_lba=0;
+u32 current_disc_lba=0xffffffff;
+
+
+void wbfs_perform_disc(void);
+
+// CISO mem area
+int ciso_lba=-1;
+int ciso_size=0;
+u32 table_lba[2048];
+u8 mem_index[2048] __attribute__ ((aligned (32)));
+
+
+// offset -> disc_offset in words 
+// data -> buffer
+// len -> len to read in bytes
+
+int WBFS_direct_disc_read(u32 offset, u8 *data, u32 len)
+{
+int r=true;
+u32 lba;
+u32 len2=len;
+u8* data2=data;
+u32 sec_size;
+int l;
+u8 *buff;
+
+	os_sync_after_write(data2, len2);
+
+	if(!disc_buff) return 0x8000;
+
+
+	 
+	last_disc_lba= USBStorage_Get_Capacity(&sec_size);
+
+	if(last_disc_lba==0 || sec_size!=2048)
+		{
+		current_disc_lba=0xffffffff;
+		return 0x8000;
+		}
+
+	if(ciso_lba>=0 && ciso_lba!=0x7fffffff && current_disc_lba==0xffffffff)
+	{
+	u32 lba_glob;
+
+	current_disc_lba=0xffffffff;
+	
+	while(1)
+		{
+		lba_glob=ciso_lba+16;
+	
+		buff=(u8 *) (((u32)disc_buff+31) & ~31); // 32 bytes aligment
+		r=USBStorage_Read_Sectors(ciso_lba, 16, buff); // read 16 cached sectors
+		if(!r) return 0x8000;
+
+		if((buff[0]=='C' && buff[1]=='I' && buff[2]=='S' && buff[3]=='O')) ciso_lba=0x7fffffff;
+		else
+			{
+			if(ciso_lba!=0) {ciso_lba=0;continue;}
+			ciso_lba=-1;
+			}
+		break;
+		}
+
+	ciso_size=(((u32)buff[4])+(((u32)buff[5])<<8)+(((u32)buff[6])<<16)+(((u32)buff[7])<<24))/2048;
+	
+	memset(mem_index,0,2048);
+
+	if(ciso_lba==0x7fffffff)
+
+		for(l=0;l<16384;l++)
+			{
+			if((l & 7)==0) table_lba[l>>3]=lba_glob;
+			
+			if(buff[8+l])
+				{
+				mem_index[l>>3]|=1<<(l & 7);
+				lba_glob+=ciso_size;
+				}
+			}
+
+	}
+
+
+	buff=(u8 *) (((u32)disc_buff+31) & ~31); // 32 bytes aligment
+	   
+	while(len>0)
+		{
+		lba=offset>>9; // offset to LBA (sector have 512 words)
+
+		if((lba & ~15)!=current_disc_lba)
+			{
+			u32 read_lba;
+
+			current_disc_lba=(lba & ~15);
+
+			read_lba=current_disc_lba;
+
+			if(ciso_lba==0x7fffffff)
+				{
+				u32 temp=current_disc_lba/ciso_size;
+
+                read_lba=table_lba[temp>>3];
+
+				for(l=0;l<(temp & 7);l++) if((mem_index[temp>>3]>>l) & 1) read_lba+=ciso_size;
+
+				read_lba+=current_disc_lba & (ciso_size-1);
+			
+				}
+				
+			l=(last_disc_lba-read_lba/*current_disc_lba*/);if(l>16) l=16;
+			
+
+			if(l<16) memset(buff,0,0x8000);
+			if(l>0)
+				{
+				r=USBStorage_Read_Sectors(/*current_disc_lba*/read_lba, l, buff); // read 16 cached sectors
+				if(!r) break;
+				}
+			}
+		
+		l=0x8000-((offset & 8191)<<2); // get max size in the cache relative to offset
+		if(l>len) l=len;
+
+		memcpy(data, &buff[((offset & 8191)<<2)], l);
+		os_sync_after_write(data, l);
+
+		data+=l;
+		len-=l;
+		offset+=l>>2;
+		}
+
+		if(!r) return 0x8000;
+		os_sync_before_read(data2, len2);
+
+return 0;
 }
 
 
@@ -180,13 +339,102 @@ extern int is_watchdog_read_sector;
 
 extern u32 n_sec,sec_size;
 
+int last_sector=0;
+
+
+void direct_os_sync_before_read(void* ptr, int size);
+void direct_os_sync_after_write(void* ptr, int size);
+u32 read_access_perm(void);
+void write_access_perm(u32 flags);
+
+/******************************************************************************************************************************************************/
+// dev/di ioctl os_message_queue_receive
+/******************************************************************************************************************************************************/
+
+int swi_di_queue(u32 cmd, ipcmessage *message)
+{
+u32 perm;
+
+	perm=read_access_perm();
+	write_access_perm(0xffffffff);
+	message->ioctl.command=cmd;
+	*((u32 *) message->ioctl.buffer_in)=cmd<<24;
+	direct_os_sync_after_write(&message->ioctl.command,4);
+	direct_os_sync_after_write(message->ioctl.buffer_in,4);
+	write_access_perm(perm);
+
+return 0;
+}
+
+int my_di_os_message_queue_receive(int queuehandle, ipcmessage ** message,int flag)
+{
+int ret,ret2;
+
+
+ret= os_message_queue_receive(queuehandle, (void*) message, flag);
+
+
+if(ret==0 && message && *message)
+	{
+	
+	if((*message)->command==IOS_IOCTL)
+		{
+	    switch((*message)->ioctl.command)
+			{
+			case 0x7a:
+				ret2=swi_mload_call_func((void *) swi_di_queue, (void *) 0x15, (void *) (*message));
+				break;
+			case 0x88:
+				ret2=swi_mload_call_func((void *) swi_di_queue, (void *) 0x14, (void *) (*message));
+				break;
+
+			}
+		
+		}
+  
+	}
+
+return ret;
+}
+
+/******************************************************************************************************************************************************/
+// ehcmodule swi service
+/******************************************************************************************************************************************************/
+void release_wbfs_mem(void);
+
+int swi_ehcmodule(u32 cmd, u32 param1, u32 param2, u32 param3)
+{
+s32 ret=-666;
+	
+	switch(cmd)
+	{
+	case 0: // get mem alloc handle (139264 bytes heap)
+		ret=heaphandle;
+		break;
+	case 1: // obtain release_wbfs_mem() function to be sure you have free memory
+		ret=(int) release_wbfs_mem;
+		break;
+	case 2:
+		ret=0;disable_ehc=1; // disable ehcmodule device for direct access operations
+		break;
+	case 16: // get USBStorage_Read_Sectors() for direct operations (remember you disable_ehc must be 1)
+		ret= (int) USBStorage_Read_Sectors;
+		break;
+	case 17:
+		ret= (int) USBStorage_Write_Sectors;
+		break;
+
+	}
+
+return ret;
+}
 
 int ehc_loop(void)
 {
 	ipcmessage* message;
 	int timer2_id=-1;
 
-	int last_sector=0;
+	
 
 	int must_read_sectors=0;
 	
@@ -213,9 +461,10 @@ int ehc_loop(void)
 
 	 int watch_time_on=1;
 
+	// register SWI function (0xcd)
 
-	
-	
+	swi_mload_add_handler(0xcd, swi_ehcmodule);
+
 	while(1)
 	{
 		int result = 1;
@@ -225,8 +474,7 @@ int ehc_loop(void)
 		// Wait for message to arrive
 		os_message_queue_receive(queuehandle, (void*)&message, 0);
 
-		
-
+	
 		// timer message WATCHDOG
 		//if((int) message==0x555) continue;
 
@@ -238,10 +486,10 @@ int ehc_loop(void)
 
 		if((int) message==0x0)
 		{
-		if(test_mode)
+		if(test_mode && !disable_ehc)
 			watchdog_enable=0; // test mode blocks watchdog
 		
-		if(must_read_sectors && watchdog_enable)
+		if(must_read_sectors && watchdog_enable && !disable_ehc)
 			{
 			int n,r;
 
@@ -254,7 +502,7 @@ int ehc_loop(void)
 			if(unplug_device==0)
 				{
 
-				if(sec_size!=0 && sec_size<2048) // only support sector size minor to 2048
+				if(sec_size!=0 && sec_size<4096) // only support sector size minor to 2048
 					{
 					
 
@@ -263,16 +511,18 @@ int ehc_loop(void)
 					r=USBStorage_Read_Sectors(last_sector, 1, mem_sector);
 
 					is_watchdog_read_sector=0;
-					if(r!=0)
+					if(r!=0 && sec_size==512)
 						last_sector+=0x1000000/sec_size; // steps of 16MB
 					if(last_sector>=n_sec) last_sector=0;
 					}
 				
 				}
 			
-			
-			watch_time_on=1;
-			os_restart_timer(timer2_id, WATCHDOG_TIMER);
+			if(!disable_ehc)
+				{
+				watch_time_on=1;
+				os_restart_timer(timer2_id, WATCHDOG_TIMER);
+				}
 			}
 		continue;
 		}
@@ -290,12 +540,29 @@ int ehc_loop(void)
                                   {
 									result = message->open.resultfd;
                                      
-										if(!already_discovered)
+										if(!already_discovered && !disable_ehc)
                                           ehci_discover();
                                         already_discovered=1;
 										
                                   }
-				else if (!ums_mode && 0 == memcmp(message->open.device, DEVICE"/", sizeof(DEVICE)))
+				else
+				if (0 == strcmp(message->open.device, DEVICE"/OFF"))
+                                  {
+									result = message->open.resultfd;
+   
+										disable_ehc=1;
+										
+									    must_read_sectors=0;
+										watchdog_enable=0;
+
+										ehci_int_passive_callback(off_callback_hand);
+										ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+										ehci_release_externals_usb_ports();
+
+										//swi_mload_led_on();
+
+                                  }
+				else if (!ums_mode && 0 == memcmp(message->open.device, DEVICE"/", sizeof(DEVICE)) && !disable_ehc)
                                         result = parse_and_open_device(message->open.device+sizeof(DEVICE),message->open.resultfd);
 				else
 					result = -6;
@@ -332,8 +599,12 @@ int ehc_loop(void)
                                         os_sync_before_read( vec[i].data, vec[i].len);
                                         //print_hex_dump_bytes("vec",0, vec[i].data,vec[i].len);
                                 }
-
-	
+                               
+							    if(disable_ehc)
+									{
+									result=-1;
+									}
+								else
                                 switch( message->ioctl.command )
                                 {
                                 case  USB_IOCTL_CTRLMSG:
@@ -391,6 +662,21 @@ int ehc_loop(void)
 										test_mode=ioctlv_u32(vec[0]);
 										result =0;
 										break;
+
+								case USB_IOCTL_UMS_OFF:
+										{
+									
+                                        disable_ehc=1;
+										
+									    must_read_sectors=0;
+										watchdog_enable=0;
+
+										ehci_int_passive_callback(off_callback_hand);
+										ehci_writel (STS_PCD, &ehci->regs->intr_enable);
+										ehci_release_externals_usb_ports();
+
+										result =0;
+										}
 								
                                 case USB_IOCTL_UMS_GET_CAPACITY:
 									    n_sec =  USBStorage_Get_Capacity(&sec_size);
@@ -437,24 +723,52 @@ int ehc_loop(void)
 										break;
                                 case USB_IOCTL_WBFS_OPEN_DISC:
                                         ums_mode = message->fd;
+								        u8 *discid;
 											
 										int partition=0;
 										#ifdef VIGILANTE
 										enable_button=1;
 										#endif
-                                        /*    if (verbose)
-                                                debug_printf("ehc:use disc %s\n",ioctlv_voidp(vec[0]));
-												*/
-										if(vec[1].len==4) memcpy(&partition, ioctlv_voidp(vec[1]), 4);
-                                         d = wbfs_init_with_partition(ioctlv_voidp(vec[0]), partition);
-                                         if(!d)
+
+										discid=ioctlv_voidp(vec[0]);
+										if(discid[0]=='_' && discid[1]=='D' && discid[2]=='V' && discid[3]=='D')
+											{
+											result = 0;watchdog_enable=1;
+											ciso_lba=0;
+                                            if(vec[1].len==4)
+												{ 
+												memcpy(&partition, ioctlv_voidp(vec[1]), 4);
+											    ciso_lba=partition;
+												}
+
+											//ciso_lba=265;
+											wbfs_perform_disc();
+											}
+										else   
+											{
+											if(vec[1].len==4) memcpy(&partition, ioctlv_voidp(vec[1]), 4);
+											d = wbfs_init_with_partition(discid, partition);
+											if(!d)
                                                result = -1;
-                                         else
-											{result = 0;watchdog_enable=1;}
+											else
+												{result = 0;watchdog_enable=1;}
+											}
                                         
 										must_read_sectors=1;
 										
                                         break;
+								case USB_IOCTL_WBFS_STS_DISC:
+									    result=USBStorage_DVD_Test();
+										if(result==0) current_disc_lba=0xffffffff; // test fail
+								     
+										break;
+								case USB_IOCTL_WBFS_READ_DIRECT_DISC: // used to read USB DVD
+									    usb_lock=1;
+										watchdog_enable=1;
+                                        result = WBFS_direct_disc_read(ioctlv_u32(vec[0]),ioctlv_voidp(vec[2]),ioctlv_u32(vec[1]));
+										usb_lock=0;
+										break;
+									 
                                 case USB_IOCTL_WBFS_READ_DISC:
                                         /*if (verbose)
                                                 debug_printf("r%x %x\n",ioctlv_u32(vec[0]),ioctlv_u32(vec[1]));
@@ -471,9 +785,9 @@ int ehc_loop(void)
                                                 result = wbfs_disc_read(d,ioctlv_u32(vec[0]),ioctlv_voidp(vec[2]),ioctlv_u32(vec[1]));
 											usb_lock=0;
                                        if(result){
-                                          debug_printf("wbfs failed! %d\n",result);
+                                          //debug_printf("wbfs failed! %d\n",result);
                                           //result = 0x7800; // wii games shows unrecoverable error..
-                                          result = 0x8000; 
+                                          result = 0;//0x8000; 
                                         }
 										//result=0;
 									}

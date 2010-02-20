@@ -10,16 +10,16 @@ ENTRY(_start)
 
 MEMORY {
 	ios_info_table	: ORIGIN = 0x0, LENGTH = 0x4000
-	exe(rwx)	: ORIGIN = 0x13700000, LENGTH = 0x8000
-	ram(rw)		: ORIGIN = 0x13708000, LENGTH = 0x38000
+	exe(rwx)	: ORIGIN = 0x13700000, LENGTH = 0x9000
+	ram(rw)		: ORIGIN = 0x13709000, LENGTH = 0x37000
 }
 
 
 
 __exe_start_virt__			= 0x13700000;
 __exe_start_phys__			= 0x13700000;
-__ram_start_virt__			= 0x13708000;
-__ram_start_phys__			= 0x13708000;
+__ram_start_virt__			= 0x13709000;
+__ram_start_phys__			= 0x13709000;
 __ios_info_table_start		= 0x0;
 
  
@@ -28,7 +28,7 @@ SECTIONS
     .debug_aranges 0 : { *(.debug_aranges) } .debug_pubnames 0 : { *(.debug_pubnames) } .debug_info 0 : { *(.debug_info) } .debug_abbrev 0 : { *(.debug_abbrev) } .debug_line 0 : { *(.debug_line) } .debug_frame 0 : { *(.debug_frame) } .debug_str 0 : { *(.debug_str) } .debug_loc 0 : { *(.debug_loc) } .debug_macinfo 0 : { *(.debug_macinfo) } .note.arm.ident 0 : { KEEP (*(.note.arm.ident)) }
     .ios_info_table __ios_info_table_start :  { . = .; KEEP (*(.ios_info_table)) } > ios_info_table
     .init __exe_start_virt__ : AT (__exe_start_phys__) { . = .; KEEP (*(.init)) } > exe
-    .text ALIGN (0x4) : { 
+    .text ALIGN (0x20) : { 
     	*(.text*) 
     	*(.gnu.warning) 
     	*(.gnu.linkonce.t.*) 
@@ -45,6 +45,6 @@ SECTIONS
     .fixup ALIGN (0x4) : { . = .; *(.fixup) } > ram
     .gcc_except_table ALIGN (0x4) : { . = .; *(.gcc_except_table) } > ram
     .got ALIGN (0x4) : { *(.got.plt) *(.got) } > ram
-    .bss ALIGN (0x4) : { *(.scommon) *(.dynsbss) *(.sbss*) *(.gnu.linkonce.sb.*) *(.dynbss) *(.bss*) *(.gnu.linkonce.b.*) *(COMMON) KEEP( *(.ios_bss) ) } > ram
+    .bss ALIGN (0x20) : { *(.scommon) *(.dynsbss) *(.sbss*) *(.gnu.linkonce.sb.*) *(.dynbss) *(.bss*) *(.gnu.linkonce.b.*) *(COMMON) KEEP( *(.ios_bss) ) } > ram
   	. = ALIGN(4);
 }

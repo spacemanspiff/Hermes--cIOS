@@ -25,7 +25,7 @@
  * Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
-
+extern char use_usb_port1;
 
 /* magic numbers that can affect system performance */
 #define	EHCI_TUNE_CERR		0	/* 0-3 qtd retries; 0 == don't stop */ /* by  Hermes: i have replaced 3 by 0 and now it don´t hang when i extract the device*/
@@ -524,12 +524,8 @@ u32 usb_timeout=1000*1000;
 
 int mode_int=0;
 
-#ifdef USE_USB_PORT_1
-u32 current_port=1;
-#else
-u32 current_port=0;
-#endif
 
+u32 current_port=0;
 
 struct ehci_qh	*in_qh=NULL;   // bulk in
 struct ehci_qh	*out_qh=NULL;  // bulk out
@@ -604,7 +600,29 @@ return 0;
 }
 
 
+// WARNING!: this routine works in Interrupt Mode
+// off_callback_hand when you disables ehcmodule access
 
+void off_callback_hand(u32 flags)
+{
+int n;
+u32 temp;
+
+ if(flags & STS_PCD)
+		{
+
+	    for(n=0;n<2;n++)
+			{
+		    temp=ehci_readl(&ehci->regs->port_status[n]);
+			
+
+			if((temp & 0x2003)==3) // on
+				{
+				 ehci_writel(PORT_OWNER /*| PORT_CSC*/, &ehci->regs->port_status[n]);
+				}
+			}
+		}
+}
 
 // WARNING!: this routine works in Interrupt Mode
 // passive_callback is used when EHCI driver is waiting to transfer datas
@@ -1398,12 +1416,13 @@ int ehci_discover(void)
 {
         int i,ret;
 		u32 status;
+
+		current_port=use_usb_port1!=0;
+
         // precondition: the ehci should be halted
-		#ifdef USE_USB_PORT_1
-		for(i = 1;i<2/*ehci->num_port*/; i++){
-		#else
-        for(i = 0;i<1/*ehci->num_port*/; i++){
-		#endif
+		
+        for(i = use_usb_port1!=0;i<1+(use_usb_port1!=0)/*ehci->num_port*/; i++){
+		
                 struct ehci_device *dev = &ehci->devices[i];
                 dev->port = i;
 
@@ -1446,17 +1465,27 @@ int ehci_release_ports(void)
         return 0;
 }
 
+int ehci_release_externals_usb_ports(void)
+{
+        int i;
+        u32 __iomem	*status_reg = &ehci->regs->port_status[2];
+      
+        for(i = 0;i<2; i++){
+          status_reg = &ehci->regs->port_status[i];
+          u32 status = ehci_readl(status_reg);
+		    if(!(status & PORT_OWNER))	ehci_writel( PORT_OWNER,status_reg); // release port.
+        }
+        return 0;
+}
+
 int ehci_open_device(int vid,int pid,int fd)
 {
         int i;
        // for(i=0;i<ehci->num_port;i++)
        // {
-		#ifdef USE_USB_PORT_1
-		i=1;
-		#else
-		i=0;
-		#endif
-
+		
+		i=use_usb_port1!=0;
+		
                 //ehci_dbg("try device: %d\n",i);
                 if(ehci->devices[i].fd == 0 &&
                    le16_to_cpu(ehci->devices[i].desc.idVendor) == vid &&
@@ -1479,11 +1508,10 @@ int ehci_close_device(struct ehci_device *dev)
 {
         int i;
        // for(i=0;i<ehci->num_port;i++)
-	    #ifdef USE_USB_PORT_1
-		i=1;
-		#else
-		i=0;
-		#endif
+	    current_port=use_usb_port1!=0;
+	    
+		i=use_usb_port1!=0;
+		
        
 		{
 		  
@@ -1507,11 +1535,9 @@ int ehci_get_device_list(u8 maxdev,u8 b0,u8*num,u16*buf)
 {
         int i,j = 0;
       //  for(i=0;i<ehci->num_port && j<maxdev ;i++)
-	    #ifdef USE_USB_PORT_1
-		i=1;
-		#else
-		i=0;
-		#endif
+	    current_port=use_usb_port1!=0;
+		i=current_port;
+		
         {
                 struct ehci_device *dev = &ehci->devices[i];
                 if(dev->id != 0){

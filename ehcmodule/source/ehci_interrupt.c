@@ -48,7 +48,7 @@ void init_thread_ehci(void)
 	disable_EHCI_IRQ();
 
 
-	ehci1_queuehandle= os_message_queue_create( os_heap_alloc(heaphandle, 4*32), 32);
+	ehci1_queuehandle= os_message_queue_create( USB_Alloc(4*32)/*os_heap_alloc(heaphandle, 4*32)*/, 32);
 
 	os_unregister_event_handler(DEV_EHCI);
 	os_register_event_handler(DEV_EHCI, ehci1_queuehandle, 0); // register interrupt event handler
@@ -112,6 +112,7 @@ void ehci_int_passive_callback( void (*callback)(u32 flags))
 {
 
 	passive_callback=callback;
+	working_callback=NULL;
     
 }
 

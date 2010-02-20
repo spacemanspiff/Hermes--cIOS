@@ -3,7 +3,8 @@
 #include "ehci_types.h"
 #include "usb.h"
 #include "ehci.h"
-static  int heap;
+
+static  int heap=-1;
 
 void ehci_usleep(int usec);
 void ehci_msleep(int msec);

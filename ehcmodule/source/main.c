@@ -118,10 +118,15 @@ static u32 vector[2]={ 0xE51FF004, 0}; // ldr pc,=addr
 u32 syscall_base;
 
 
+int my_di_os_message_queue_receive(int queuehandle, ipcmessage ** message,int flag);
+
+u32 read_access_perm(void);
+void write_access_perm(u32 flags);
+
 
 int copy_int_vect(u32 ios, u32 none)
 {
-
+u32 perm;
 	switch(ios)
 	{
 	case 36:
@@ -154,6 +159,25 @@ int copy_int_vect(u32 ios, u32 none)
 
 	case 38:
 
+		// patch for DI (IOS38) os_message_queue_receive() syscalls
+
+        perm=read_access_perm();
+		write_access_perm(0xffffffff);
+		
+		if(*((u32 *) 0x20203E6C)==0xE6000170) // detect an unused syscall in dev/di to store the entry
+			{
+			vector[1]= ((u32) my_di_os_message_queue_receive) | 1;
+			memcpy((void *) 0x20203E6C, vector, 8);
+			direct_os_sync_after_write((void *) 0x20203E6C, 8);
+
+			*((u32 *) 0x20205B14)= 0xEA000000 | (((0x20203E6C-0x20205B14)/4-2) & 0xFFFFFF); // change the jump
+			direct_os_sync_after_write((void *) 0x20205B14, 4);
+			}
+
+		write_access_perm(perm);
+
+		// end of patch DI
+		
 		vector[1]= (u32) 0xFFFF1EB0;
 		memcpy((void *) patch1_timer, vector, 8); // patch1 -> timer
 		direct_os_sync_after_write((void *) patch1_timer, 8);
@@ -198,10 +222,13 @@ int copy_int_vect(u32 ios, u32 none)
 return 0;
 }
 
+extern char use_usb_port1;
+extern u32 current_port;
+
 int main(void)
 {
 
-
+current_port=use_usb_port1!=0;
 // changes IOS vector interrupt to crt0.s routine
 
 syscall_base=swi_mload_get_syscall_base();
