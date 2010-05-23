@@ -83,7 +83,8 @@ distribution.
 
 
 extern char use_reset_bulk;
-extern char force_get_max_lun;
+/* force_flags 1 ->force GetMaxLun, 2-> force SetConfiguration */
+extern char force_flags;
 extern char use_alternative_timeout;
 
 int is_dvd=0;
@@ -1039,7 +1040,7 @@ found:
 	#endif
 
 usb_timeout=10000*1000;
-	if(conf != dev->configuration && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) 
+	if((conf != dev->configuration || (force_flags & 2)) && USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) 
 		goto free_and_return;
 
 	try_status=-1203;
@@ -1400,7 +1401,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 	// fast re-mount
 	if(_old_device.mounted)
 	{
-		if(_old_device.use_maxlun || force_get_max_lun)
+		if(_old_device.use_maxlun || (force_flags & 1))
 			{
 				__usbfd.max_lun = 0;
 				usb_timeout=10000*1000;
@@ -1451,7 +1452,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
       //for(j = 0; j < maxLun; j++)
 	while(1)
        {
-         if(!force_get_max_lun || j!=0 || !test_max_lun)
+         if(!(force_flags & 1) || j!=0 || !test_max_lun)
 		   {
 			   #ifdef MEM_PRINT
 			   s_printf("USBStorage_MountLUN %i#\n", j);
@@ -1496,7 +1497,7 @@ s32 USBStorage_Try_Device(struct ehci_device *fd)
 					 #ifdef MEM_PRINT
 					 s_printf("USBSTORAGE_GET_MAX_LUN ret %i maxlun %i\n", retval,maxLun);
 					 #endif
-					if(!force_get_max_lun) test_max_lun=0;
+					if(!(force_flags & 1)) test_max_lun=0;
 					else if(retval >= 0 ) test_max_lun=0;
 					}
 				else j++;
@@ -1713,7 +1714,7 @@ if(!ums_init_done) return -1009;
 
 	usb_timeout=10000*1000;
 
-	if(conf != __usbfd.configuration && USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
+	if((conf != __usbfd.configuration || (force_flags & 2)) && USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
 		
 	if(__usbfd.altInterface != 0 && USB_SetAlternativeInterface(__usbfd.usb_fd, __usbfd.interface, __usbfd.altInterface) < 0) return -1002;
 	
@@ -1724,7 +1725,7 @@ if(!ums_init_done) return -1009;
 			
 	usb_timeout=1000*1000;
 
-	if(_old_device.use_maxlun || force_get_max_lun)
+	if(_old_device.use_maxlun || (force_flags & 1))
 		{
 		__usbfd.max_lun = 0;
 

@@ -178,8 +178,9 @@ use_usb_port1:
 use_reset_bulk:
 	.byte 0x0
 
-	.global force_get_max_lun
-force_get_max_lun:
+/* force_flags 1 ->force GetMaxLun, 2-> force SetConfiguration */
+	.global force_flags
+force_flags:
 	.byte 0x0
 	
 	.global use_alternative_timeout

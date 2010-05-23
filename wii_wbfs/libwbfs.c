@@ -164,12 +164,16 @@ wbfs_t*wbfs_open_partition(rw_sector_callback_t read_hdsector,
         //constants, but put here for consistancy
         p->wii_sec_sz = 0x8000;
         p->wii_sec_sz_s = size_to_shift(0x8000);
-        p->n_wii_sec = (num_hd_sector/0x8000)*hd_sector_size;
+       // p->n_wii_sec = (num_hd_sector/0x8000)*hd_sector_size;
         p->n_wii_sec_per_disc = 143432*2;//support for double layers discs..
         p->head = head;
         p->part_lba = part_lba;
 
 		my_hd_sector_size=hd_sector_size;
+
+		 p->n_wii_sec =(u32) ((u64) num_hd_sector)/ ((u64) 0x8000);
+		 p->n_wii_sec=(u32) ( ((u64) p->n_wii_sec) * ((u64) hd_sector_size) );
+
         // init the partition
         if (reset)
         {
