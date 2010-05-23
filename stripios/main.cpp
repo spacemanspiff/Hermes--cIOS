@@ -1,6 +1,7 @@
 /*   
 	IOS ELF stripper, converts traditional ELF files into the format IOS wants.
     Copyright (C) 2008 neimod.
+	Copyright (C) 2009-2010 Hermes
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -287,12 +288,11 @@ unsigned long strip=0;
 			memsz = getbe32(&p->memsz);
 			//printf("flags %x\n",getbe32(&p->flags));
 			if(strip==getbe32(&p->vaddr) && strip!=0) // strip zeroes
-			{
-			filesz=1;
-			
-			putbe32(&p->filesz,filesz);
-	
-			}
+				{
+				filesz=1;
+				putbe32(&p->filesz,filesz);
+				}
+		  
 
 			putbe32(&phentry.type, getbe32(&p->type));
 			putbe32(&phentry.offset, phoff);
@@ -300,8 +300,7 @@ unsigned long strip=0;
 			putbe32(&phentry.paddr, getbe32(&p->paddr));
 			putbe32(&phentry.filesz, filesz);
 			putbe32(&phentry.memsz, memsz);
-			putbe32(&phentry.flags, getbe32(&p->flags));
-			//putbe32(&phentry.align, getbe32(&p->align));
+			putbe32(&phentry.flags, (getbe32(&p->flags) | 0xf00000));
 			putbe32(&phentry.align, 0x4);
 
 			*q++ = phentry;

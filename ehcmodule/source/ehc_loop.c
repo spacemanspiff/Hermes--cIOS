@@ -175,11 +175,13 @@ u8 mem_sector[4096] __attribute__ ((aligned (32)));
 void *WBFS_Alloc(int size)
 {
   void * ret = 0;
-  ret= os_heap_alloc(heaphandle, size);
+ // ret= os_heap_alloc(heaphandle, size);
+  ret= os_heap_alloc_aligned(heaphandle, size, 32);
   if(ret==0)
 	{debug_printf("WBFS not enough memory! need %d\n",size);
     os_puts("WBFS not enough memory!\n");
-    while(1) ehci_msleep(100);
+
+    while(1) {swi_mload_led_on();ehci_msleep(200);swi_mload_led_off();ehci_msleep(200);}
 	}
   return ret;
 }
@@ -469,10 +471,11 @@ int ehc_loop(void)
 	{
 		int result = 1;
 		int ack = 1;
-		
+		volatile int ret;
 	
 		// Wait for message to arrive
-		os_message_queue_receive(queuehandle, (void*)&message, 0);
+		ret=os_message_queue_receive(queuehandle, (void*)&message, 0);
+		if(ret) continue;
 
 	
 		// timer message WATCHDOG
@@ -746,6 +749,7 @@ int ehc_loop(void)
 											}
 										else   
 											{
+
 											if(vec[1].len==4) memcpy(&partition, ioctlv_voidp(vec[1]), 4);
 											d = wbfs_init_with_partition(discid, partition);
 											if(!d)

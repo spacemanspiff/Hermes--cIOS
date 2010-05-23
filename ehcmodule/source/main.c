@@ -41,7 +41,7 @@ int tiny_ehci_init(void);
 
 //int ehc_loop(void);
 
-u8 heap_space2[0xc000] __attribute__ ((aligned (32)));
+u8 heap_space2[0xe000] __attribute__ ((aligned (32)));
 
 /* USB timer */
 
@@ -101,7 +101,7 @@ void ehci_mdelay(int msec)//@todo not really sleeping..
 int ehc_loop(void);
 
 int heaphandle=-1;
-unsigned int heapspace[0x8800] __attribute__ ((aligned (32)));
+unsigned int heapspace[0x5000/*0x8800*/] __attribute__ ((aligned (32)));
 
 
 void interrupt_vector(void);
@@ -123,21 +123,45 @@ int my_di_os_message_queue_receive(int queuehandle, ipcmessage ** message,int fl
 u32 read_access_perm(void);
 void write_access_perm(u32 flags);
 
+static void di_patch(u32 addr1, u32 addr2)
+{
+u32 perm;
+
+	perm=read_access_perm();
+	write_access_perm(0xffffffff);
+	
+	if(*((u32 *) addr2)==0xE6000170) // detect an unused syscall in dev/di to store the entry
+		{
+		vector[1]= ((u32) my_di_os_message_queue_receive) | 1;
+		memcpy((void *) addr2, vector, 8);
+		direct_os_sync_after_write((void *) addr2, 8);
+
+		*((u32 *) addr1)= 0xEA000000 | (((addr2-addr1)/4-2) & 0xFFFFFF); // change the jump
+		direct_os_sync_after_write((void *) addr1, 4);
+		}
+
+	write_access_perm(perm);
+
+}
 
 int copy_int_vect(u32 ios, u32 none)
 {
-u32 perm;
+	ic_invalidate();
+
 	switch(ios)
 	{
 	case 36:
-
+    // WARNING!!!: IOS 36 ins not recommended because it fails using the ehcmodule some times
 		vector[1]= (u32) interrupt_vector;
-		ic_invalidate();
+		
 		memcpy((void *) 0xFFFF1E78, vector,8); // fix interrupt jump
 		direct_os_sync_after_write((void *)  0xFFFF1E78, 8);
 		break;
 
 	case 37:
+
+		// patch for DI (IOS37 v3869) os_message_queue_receive() syscalls
+		di_patch(0x20205DE8, 0x2020408c);
 
 		vector[1]= (u32) 0xFFFF1F70;
 		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
@@ -152,32 +176,16 @@ u32 perm;
 		direct_os_sync_after_write((void *) int_send_device_message, 8);
 
 		vector[1]= (u32) interrupt_vector;
-		ic_invalidate();
+		
 		memcpy((void *) 0xFFFF1F68, vector,8); // fix interrupt jump
 		direct_os_sync_after_write((void *)  0xFFFF1F68, 8);
 		break;
 
 	case 38:
-
-		// patch for DI (IOS38) os_message_queue_receive() syscalls
-
-        perm=read_access_perm();
-		write_access_perm(0xffffffff);
 		
-		if(*((u32 *) 0x20203E6C)==0xE6000170) // detect an unused syscall in dev/di to store the entry
-			{
-			vector[1]= ((u32) my_di_os_message_queue_receive) | 1;
-			memcpy((void *) 0x20203E6C, vector, 8);
-			direct_os_sync_after_write((void *) 0x20203E6C, 8);
+		// patch for DI (IOS38 v3867) os_message_queue_receive() syscalls
+		di_patch(0x20205B14, 0x20203E6C);
 
-			*((u32 *) 0x20205B14)= 0xEA000000 | (((0x20203E6C-0x20205B14)/4-2) & 0xFFFFFF); // change the jump
-			direct_os_sync_after_write((void *) 0x20205B14, 4);
-			}
-
-		write_access_perm(perm);
-
-		// end of patch DI
-		
 		vector[1]= (u32) 0xFFFF1EB0;
 		memcpy((void *) patch1_timer, vector, 8); // patch1 -> timer
 		direct_os_sync_after_write((void *) patch1_timer, 8);
@@ -191,12 +199,14 @@ u32 perm;
 		direct_os_sync_after_write((void *) int_send_device_message, 8);
 
 		vector[1]= (u32) interrupt_vector;
-		ic_invalidate();
+		
 		memcpy((void *) 0xFFFF1EA8, vector,8);
 		direct_os_sync_after_write((void *)  0xFFFF1EA8, 8);
 		break;
 
-	case 60:
+	case 57:
+		// patch for DI (IOS57 v5661) os_message_queue_receive() syscalls
+		di_patch(0x20205E84, 0x20203F60);
 
 		vector[1]= (u32) 0xFFFF2130;
 		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
@@ -211,10 +221,34 @@ u32 perm;
 		direct_os_sync_after_write((void *) int_send_device_message, 8);
 
 		vector[1]= (u32) interrupt_vector;
-		ic_invalidate();
+		
 		memcpy((void *) 0xFFFF2128, vector,8); // fix interrupt jump
 		direct_os_sync_after_write((void *)  0xFFFF2128, 8);
 		break;
+
+	case 60:
+
+		// patch for DI (IOS60 v6174) os_message_queue_receive() syscalls
+		di_patch(0x20205D94, 0x20203F60);
+
+		vector[1]= (u32) 0xFFFF2130;
+		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
+		direct_os_sync_after_write((void *) patch1_timer, 8);
+
+		vector[1]= (u32) 0xFFFF214C;
+		memcpy((void *) patch2_timer_cont, vector,8); // patch2-> next interrupt case
+		direct_os_sync_after_write((void *) patch2_timer_cont, 8);
+
+		vector[1]= (u32) 0xFFFF1FF4;
+		memcpy((void *) int_send_device_message, vector,8); // patch3 ->send device message
+		direct_os_sync_after_write((void *) int_send_device_message, 8);
+
+		vector[1]= (u32) interrupt_vector;
+		
+		memcpy((void *) 0xFFFF2128, vector,8); // fix interrupt jump
+		direct_os_sync_after_write((void *)  0xFFFF2128, 8);
+		break;
+
 	}
 
 		//*((volatile u32 *)0x0d8000c0) |=0x20;
@@ -230,6 +264,8 @@ int main(void)
 
 current_port=use_usb_port1!=0;
 // changes IOS vector interrupt to crt0.s routine
+
+//swi_mload_led_on();
 
 syscall_base=swi_mload_get_syscall_base();
 os_sync_after_write((void *) &syscall_base, 4);

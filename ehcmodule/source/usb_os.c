@@ -74,11 +74,12 @@ void ehci_dma_unmap_bidir(dma_addr_t buf,size_t len)
 void *USB_Alloc(int size)
 {
   void * ret = 0;
-  ret= os_heap_alloc(heap, size);
+  ret= os_heap_alloc_aligned(heap, size, 32);
+ // ret= os_heap_alloc(heap, size);
   if(ret==0)
 	{
     os_puts("USB Alloc: not enough memory!\n");
-    while(1) ehci_msleep(100);
+     while(1) {swi_mload_led_on();ehci_msleep(200);swi_mload_led_off();ehci_msleep(200);}
 	}
   return ret;
 }

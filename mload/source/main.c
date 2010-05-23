@@ -1,7 +1,7 @@
 /*   
 	dev/mload: Custom IOS module for Wii, to load ios elfs, initialize USB 2.0 and others uses
 	This module is derived from haxx.elf
-	Copyright (C) 2009 Hermes.
+	Copyright (C) 2009-2010 Hermes.
     Copyright (C) 2008 neimod.
 
 
@@ -40,6 +40,9 @@
 #include "syscalls.h"
 #include "swi_mload.h"
 
+#define MLOAD_VER	 5
+#define MLOAD_SUBVER 0
+#define STR_VERSION "dev/mload v5.0 (c) 2009-2010, Hermes\n"
 
 #define IOS_OPEN				0x01
 #define IOS_CLOSE				0x02
@@ -49,8 +52,9 @@
 #define IOS_IOCTL				0x06
 #define IOS_IOCTLV				0x07
 
-#define MLOAD_MLOAD_THREAD_ID	0x4D4C4400
-#define MLOAD_GET_IOS_BASE	    0x4D4C4401
+#define MLOAD_MLOAD_THREAD_ID	 0x4D4C4400
+#define MLOAD_GET_IOS_BASE	     0x4D4C4401
+#define MLOAD_GET_MLOAD_VERSION  0x4D4C4402
 
 #define MLOAD_LOAD_MODULE		0x4D4C4480
 #define MLOAD_RUN_MODULE		0x4D4C4481
@@ -200,12 +204,22 @@ static int one=1;
 	u32 temp;
 	one=0;
 
+	IOS_BASE=0;
+
         temp=*((volatile u32 *) 0xFFFF0028);
 		
 		if(temp==0xFFFF1C70)		{IOS_BASE=36;syscall_base= 0xFFFF8980;}
 		else if(temp==0xFFFF1D60)	{IOS_BASE=37;syscall_base= 0xFFFF91B0;}
 		else if(temp==0xFFFF1CA0)	{IOS_BASE=38;syscall_base= 0xFFFF8AA0;}
-		else if(temp==0xFFFF1F20)	{IOS_BASE=60;syscall_base= 0xFFFF9390;}
+		else if(temp==0xFFFF1F20)	
+				{
+				temp=*((volatile u32 *) 0xFFFF00FC);
+				if(temp==0xFFFFD004)
+					 {IOS_BASE=57;syscall_base= 0xFFFF9390;}
+				else
+				if(temp==0xFFFFCE24)
+					{IOS_BASE=60;syscall_base= 0xFFFF9390;}
+				}
 	
 	ic_invalidate();
 
@@ -251,6 +265,7 @@ static int one=1;
 			break;
 		
 		case 37:
+			/*
 			// patch 1 
 			*((u16 *) 0x20100D4A)= 0x2803; 
 			direct_os_sync_after_write((void *) 0x20100D4A, 2);
@@ -269,6 +284,42 @@ static int one=1;
 			// patch 4 
 			*((u16 *) 0x20107A9E)=0xe000; 
 			direct_os_sync_after_write((void *) 0x20107A9E, 2);
+			*/
+
+			
+
+
+			// patch 1 
+			*((u16 *) 0x20100D4A)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100D4A, 2);
+			*((u16 *) 0x20100DC2)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100DC2, 2);
+
+			//*((u16 *) 0x20100D64)= 0x429A; 
+			//direct_os_sync_after_write((void *) 0x20100D64, 2);
+
+			// FFS access
+			*((u16 *) 0x200012F2)= 0xE001; 
+			direct_os_sync_after_write((void *) 0x200012F2, 2);
+			
+
+			// patch 2 
+			*((u16 *) 0x201027AC)=0xd201; 
+			direct_os_sync_after_write((void *) 0x201027AC, 2);
+
+			// patch 3 
+			*((u16 *) 0x2010522A)=0x46c0; 
+			direct_os_sync_after_write((void *) 0x2010522A, 2);
+
+			// patch 4 
+			*((u16 *) 0x20107B22)=0xe000; 
+			direct_os_sync_after_write((void *) 0x20107B22, 2);
+
+			// patch 5 
+			*((u16 *) 0x20105FC0)=0xe000; 
+			direct_os_sync_after_write((void *) 0x20105FC0, 2);
+
+
 
 			break;
 
@@ -282,16 +333,71 @@ static int one=1;
 			direct_os_sync_after_write((void *) 0x20100D40, 2);
 
 			// patch 2 
-			*((u16 *) 0x20102720)=0xd201; 
-			direct_os_sync_after_write((void *) 0x20102720, 2);
+			*((u16 *) 0x20102724)=0xd201; // 0x20102720
+			direct_os_sync_after_write((void *) 0x20102724, 2);
 
 			// patch 3 
-			*((u16 *) 0x20104F6E)=0x46c0; 
-			direct_os_sync_after_write((void *) 0x20104F6E, 2);
+			*((u16 *) 0x20104FF2)=0x46c0; //0x20104F6E
+			direct_os_sync_after_write((void *) 0x20104FF2, 2);
 
 			// patch 4 
-			*((u16 *) 0x201075FE)=0xe000; 
-			direct_os_sync_after_write((void *) 0x201075FE, 2);
+			*((u16 *) 0x20107682)=0xe000; //0x201075FE
+			direct_os_sync_after_write((void *) 0x20107682, 2);
+
+			// FFS access
+			*((u16 *) 0x2000347E)= 0xE001; 
+			direct_os_sync_after_write((void *) 0x2000347E, 2);
+
+
+			break;
+
+		case 57:
+
+			/*// patch 1 
+			*((u16 *) 0x20100DA4)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100DA4, 2);
+			*((u16 *) 0x20100E1C)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100E1C, 2);
+
+			// patch 2 
+			*((u16 *) 0x20102800)=0xd201; 
+			direct_os_sync_after_write((void *) 0x20102800, 2);
+
+			// patch 3 
+			*((u16 *) 0x2010523A)=0x46c0; 
+			direct_os_sync_after_write((void *) 0x2010523A, 2);
+
+			// patch 4 
+			*((u16 *) 0x20107B32)=0xe000; 
+			direct_os_sync_after_write((void *) 0x20107B32, 2);
+			*/
+
+			// patch 1 
+			*((u16 *) 0x20100E74)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100E74, 2);
+			*((u16 *) 0x20100EEC)= 0x2803; 
+			direct_os_sync_after_write((void *) 0x20100EEC, 2);
+
+			// patch 2 
+			*((u16 *) 0x20102C74)=0xd201; 
+			direct_os_sync_after_write((void *) 0x20102C74, 2);
+
+			// patch 3 
+			*((u16 *) 0x2010576A)=0x46c0; 
+			direct_os_sync_after_write((void *) 0x2010523A, 2);
+
+			// patch 4 
+			*((u16 *) 0x2010849A)=0xe000; 
+			direct_os_sync_after_write((void *) 0x2010849A, 2);
+
+			// patch 5 
+			*((u16 *) 0x2010650C)=0xe000; 
+			direct_os_sync_after_write((void *) 0x2010650C, 2); // ES_DECRYPT pass
+
+			// FFS access
+			*((u16 *) 0x20001306)= 0xE001; 
+			direct_os_sync_after_write((void *) 0x20001306, 2);
+
 
 			break;
 
@@ -314,6 +420,14 @@ static int one=1;
 			// patch 4 
 			*((u16 *) 0x20107B32)=0xe000; 
 			direct_os_sync_after_write((void *) 0x20107B32, 2);
+
+			// patch 5 
+			*((u16 *) 0x20105FD0)=0xe000; 
+			direct_os_sync_after_write((void *) 0x20105FD0, 2); // ES_DECRYPT pass
+
+			// FFS access
+			*((u16 *) 0x20001306)= 0xE001; 
+			direct_os_sync_after_write((void *) 0x20001306, 2);
 
 			break;
 
@@ -439,6 +553,10 @@ int swi_handler(u32 arg0, u32 arg1,u32 arg2, u32 arg3)
 			// get IOS base
             case 18:
 				return ((int) IOS_BASE);
+
+			// get mload version
+            case 19:
+				return ((MLOAD_VER<<4)+MLOAD_SUBVER);
 				
 			// led on
 			case 128:
@@ -523,7 +641,7 @@ int main(void)
 
 	os_device_register(DEVICE, queuehandle);
 
-	os_puts("dev/mload v3.0 (c) 2009, Hermes\n");
+	os_puts(STR_VERSION);
 	
 	while(1)
 	{	
@@ -644,6 +762,9 @@ int main(void)
 										break;
 								case MLOAD_GET_IOS_BASE:
 										result= (u32) IOS_BASE;
+										break;
+								case MLOAD_GET_MLOAD_VERSION:
+										result= (u32) ((MLOAD_VER<<4)+MLOAD_SUBVER);
 										break;
 								
 								case MLOAD_GET_EHCI_DATA:

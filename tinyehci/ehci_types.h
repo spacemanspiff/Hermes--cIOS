@@ -3,7 +3,7 @@
 /* linux kernel types needed by our code */
 #define __iomem
 
-typedef unsigned long uint32_t;
+//typedef unsigned long uint32_t;
 
 #include "types.h"
 

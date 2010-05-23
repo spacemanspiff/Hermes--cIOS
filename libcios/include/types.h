@@ -5,7 +5,12 @@
 \brief Data type definitions
 
 */ 
-
+typedef signed char int8_t ;
+typedef unsigned char uint8_t;
+typedef signed short int16_t;
+typedef unsigned short uint16_t;
+typedef signed int int32_t;
+typedef unsigned int uint32_t;
 
 #ifdef __cplusplus
    extern "C" {
@@ -110,6 +115,24 @@ extern struct __argv *__system_argv;
 
 // argv struct magic number
 #define ARGV_MAGIC 0x5f617267
+
+
+typedef uint32_t		sec_t;
+
+/* Attributes */
+#ifndef ATTRIBUTE_ALIGN
+# define ATTRIBUTE_ALIGN(v)	__attribute__((aligned(v)))
+#endif
+#ifndef ATTRIBUTE_PACKED
+# define ATTRIBUTE_PACKED	__attribute__((packed))
+#endif
+
+/* Stack align */
+#define STACK_ALIGN(type, name, cnt, alignment)	\
+	u8 _al__##name[((sizeof(type)*(cnt)) + (alignment) + (((sizeof(type)*(cnt))%(alignment)) > 0 ? ((alignment) - ((sizeof(type)*(cnt))%(alignment))) : 0))]; \
+	type *name = (type*)(((u32)(_al__##name)) + ((alignment) - (((u32)(_al__##name))&((alignment)-1))))
+
+
 
 #ifdef __cplusplus
    }

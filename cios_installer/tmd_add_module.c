@@ -15,7 +15,7 @@
 #include "sha1.h"
 #include "debug.h"
 #include "http.h"
-#include "haxx_certs.h"
+//#include "haxx_certs.h"
 #include <fat.h>
 //#include "ehc_elf.h"
 #include "mload_elf.h"
@@ -29,6 +29,9 @@ u32 save_nus_object (u16 index, u8 *buf, u32 size);
 /* add module inside the tmd
    take care of alignement.
 */
+
+extern int INPUT_TITLEID_L;
+
 void tmd_add_module(tmd *p_tmd,const u8 *elf, u32 elf_size)
 {
         int ncid;
@@ -36,11 +39,13 @@ void tmd_add_module(tmd *p_tmd,const u8 *elf, u32 elf_size)
         tmd_content *p_cr = (tmd_content *)TMD_CONTENTS(p_tmd);
         sha1 hash;
         int content_size = (elf_size+31)&~31;
-        u8 *buf = malloc(content_size);
+        u8 *buf = memalign(32,content_size);
         int index =  p_tmd->num_contents;
 		memset((void *) buf,0,content_size);
 
         memcpy((void *) buf,elf,elf_size);
+
+		
         ncid = 10;
         while(!found){
                 found = 1;
@@ -52,7 +57,7 @@ void tmd_add_module(tmd *p_tmd,const u8 *elf, u32 elf_size)
 		
         debug_printf("found a free cid: %x\n",ncid);
         p_cr[index].cid = ncid;
-        p_cr[index].type = 0x8001; // shared is 0x8001
+        p_cr[index].type = 0x0001; // shared is 0x8001
         p_cr[index].size = content_size;
         p_cr[index].index = index;
 
@@ -98,8 +103,8 @@ int add_custom_modules(tmd *p_tmd)
         debug_printf("adding haxx module\n");
         tmd_add_module(p_tmd,mload_elf,mload_elf_size);
 
-		tmp = p_cr[3]; // inverse ehc and oh0 place in tmd
-        p_cr[3] = p_cr[p_tmd->num_contents-1];
+		tmp = p_cr[3-(INPUT_TITLEID_L==57)]; // inverse ehc and oh0 place in tmd
+        p_cr[3-(INPUT_TITLEID_L==57)] = p_cr[p_tmd->num_contents-1];
         p_cr[p_tmd->num_contents-1] = tmp;
 
    

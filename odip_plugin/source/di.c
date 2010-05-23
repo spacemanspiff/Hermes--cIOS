@@ -79,13 +79,18 @@ int DIP_ReadDVDVideo(void *dst, u32 len, u32 lba)
 int DIP_ReadDVD(void *dst, u32 len, u32 sector)
 {
 	u32 inbuf[8];
-
+	int res;
+	int tries = 0;
+    do {
 	inbuf[0] = IOCTL_DI_LOWREAD << 24; // IOCTL_DI_LOWREAD A8
 	inbuf[1] = len;
 	inbuf[2] = sector;
 
 	os_sync_before_read(dst, len);
-	return handleDiCommand(inbuf, dst, len);
+	res =handleDiCommand(inbuf, dst, len);
+	tries++;
+	} while (res  && tries < 8);
+	return res;
 }
 
 

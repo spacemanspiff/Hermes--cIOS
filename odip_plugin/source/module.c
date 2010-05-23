@@ -1,6 +1,7 @@
 /*
  *  Copyright (C) 2010 Spaceman Spiff
  *  Copyright (C) 2010 Hermes
+ *  Copyright (C) 2010 Waninkoko
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -46,6 +47,63 @@ void dummy_function(u32 *outbuf, u32 outbuf_size)
 {
 }
 
+
+// From Waninkoko dip_plugin
+
+/* Return codes */
+#define DIP_EIO 0xA000
+ 
+/* Disc lengths */
+#define DVD5_LENGTH 0x46090000
+#define DVD9_LENGTH 0x7ED38000
+ 
+/* Error codes */
+#define ERROR_BLOCK_RANGE 0x52100
+#define ERROR_WRONG_DISC 0x53100
+
+/* Disc types */
+enum {
+DISC_UNKNOWN = 0,
+DISC_DVD5,
+DISC_DVD9,
+};
+ 
+int dvd_type=0;
+
+s32 __DI_CheckOffset(u32 offset)
+{
+u32 offmax;
+ 
+/* Check disc type */
+	switch (dvd_type) {
+	/* Single layer */
+	case DISC_DVD5:
+	offmax = DVD5_LENGTH;
+	break;
+	 
+	/* Dual layer */
+	case DISC_DVD9:
+	offmax = DVD9_LENGTH;
+	break;
+	 
+	default:
+	return 0;
+	}
+	 
+	/* Check offset */
+	if (offset >= offmax) {
+	/* Set error */
+	dip.currentError = ERROR_BLOCK_RANGE;
+	 
+	/* I/O error */
+	return DIP_EIO;
+	}
+ 
+return 0;
+}
+
+
+
 // CISO mem area
 int ciso_lba=-1;
 int ciso_size=0;
@@ -71,6 +129,11 @@ int read_from_device(void *outbuf, u32 size, u32 lba)
 {
 int r=-1;
 int l;
+
+ r = __DI_CheckOffset(lba);
+ if (r) return r;
+
+ r=-1;
 
 	lba += dip.base + dip.offset;
 
@@ -192,6 +255,29 @@ int l;
 
 return r;
 
+
+}
+
+// From Waninkoko dip_plugin
+
+void __DI_CheckDisc(void)
+{
+void *buffer;
+s32 ret;
+ 
+	/* Allocate buffer */
+	buffer = (void *) os_heap_alloc_aligned(0, SECTOR_SIZE, 32); 
+	if (!buffer)
+	return;
+	 
+	/* Read second layer */
+	ret = read_from_device(buffer, SECTOR_SIZE, 0x47000000);
+	 
+	/* Set disc type */
+	dvd_type = (!ret) ? DISC_DVD9 : DISC_DVD5;
+	 
+	/* Free buffer */
+	os_heap_free(0, buffer);
 
 }
 int read_id_from_image(u32 *outbuf, u32 outbuf_size)
@@ -419,6 +505,8 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 
 				cmdRes = 0;
 
+				res=0;
+
 				if (!dip.has_id) cmdRes = handleDiCommand(inbuf, outbuf, outbuf_size);
 
 
@@ -429,6 +517,8 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 					} 
 				else
 					dip.dvdrom_mode = 0;
+				 if (!res)
+					  __DI_CheckDisc();
 
 				break;
 			}
