@@ -1574,9 +1574,21 @@ s32 USBStorage_Init(void)
 s_printf("\n***************************************************\nUSBStorage_Init()\n***************************************************\n\n");
 
 #endif		
+
+/*if(use_usb_port1!=0)
+	{
+	
+    struct ehci_device *dev = &ehci->devices[0];
+
+
+	dev->port=0;
+	dev->id=0;
+	ret=ehci_reset_port(0);
+	}
+*/		
 	    
-		
-		for(i = use_usb_port1!=0;i<1+(use_usb_port1!=0)/*ehci->num_port*/; i++){
+		current_port=use_usb_port1!=0;
+		for(i = use_usb_port1!=0;i<(1+(use_usb_port1!=0))/*ehci->num_port*/; i++){
         
                 struct ehci_device *dev = &ehci->devices[i];
 
@@ -1588,15 +1600,15 @@ s_printf("\n***************************************************\nUSBStorage_Init
 		            unplug_device=1;
 					
 
-					ret=ehci_reset_port(current_port);
+					ret=ehci_reset_port(i);
 					ehci_msleep(20);
-					status=ehci_readl(&ehci->regs->port_status[current_port]);
+					status=ehci_readl(&ehci->regs->port_status[i]);
 
 					if(ret<0 || (status & 0x3105)!=0x1005)
 						{
-						ret=ehci_reset_port2(current_port);
+						ret=ehci_reset_port2(i);
 						ehci_msleep(20);
-						status=ehci_readl(&ehci->regs->port_status[current_port]);
+						status=ehci_readl(&ehci->regs->port_status[i]);
 						}
 				
 				    unplug_device=1;
@@ -1621,7 +1633,7 @@ s_printf("\n***************************************************\nUSBStorage_Init
 				else
 					{
 				    unplug_device=1;
-					status = ehci_readl(&ehci->regs->port_status[current_port]);
+					status = ehci_readl(&ehci->regs->port_status[i]);
 
 					#ifdef MEM_PRINT
 					s_printf("USBStorage_Init() status %x\n",status);
@@ -1630,14 +1642,14 @@ s_printf("\n***************************************************\nUSBStorage_Init
 					
 					if(status & 1)
 						{
-						ret=ehci_reset_port2(current_port);
+						ret=ehci_reset_port2(i);
 						ehci_msleep(20);
-						status=ehci_readl(&ehci->regs->port_status[current_port]);
+						status=ehci_readl(&ehci->regs->port_status[i]);
 
 							if(ret<0 || (status & 0x3105)!=0x1005)
 								{
 								
-								ret=ehci_reset_port(current_port);
+								ret=ehci_reset_port(i);
 								//status=ehci_readl(&ehci->regs->port_status[current_port]);
 								}
 						
@@ -1775,7 +1787,7 @@ int unplug_procedure(void)
 int retval=1;
 u32 status;
 
-
+current_port=use_usb_port1!=0;
  if(unplug_device!=0 )
 			{
 	

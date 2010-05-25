@@ -681,7 +681,9 @@ u32 temp;
 		{		
 		struct ehci_qtd * qtd;
 		ret=0; // done
+		
 			
+
 			if(int_qtd)
 			{
 			for(qtd=int_qtd; qtd; qtd = qtd->next)
@@ -1421,7 +1423,7 @@ int ehci_discover(void)
 
         // precondition: the ehci should be halted
 		
-        for(i = use_usb_port1!=0;i<1+(use_usb_port1!=0)/*ehci->num_port*/; i++){
+        for(i = use_usb_port1!=0;i<(1+(use_usb_port1!=0))/*ehci->num_port*/; i++){
 		
                 struct ehci_device *dev = &ehci->devices[i];
                 dev->port = i;

@@ -100,7 +100,7 @@ int disable_ehc=0;
 void USBStorage_Umount(void);
 
 //#define DEVICE "/dev/usb/ehc"
-#define DEVICE "/dev/usb2"
+#define DEVICE "/dev/usb123"
 
 int verbose = 0;
 #define ioctlv_u8(a) (*((u8*)(a).data))
@@ -565,8 +565,9 @@ int ehc_loop(void)
 										//swi_mload_led_on();
 
                                   }
-				else if (!ums_mode && 0 == memcmp(message->open.device, DEVICE"/", sizeof(DEVICE)) && !disable_ehc)
+				/*else if (!ums_mode && 0 == memcmp(message->open.device, DEVICE"/", sizeof(DEVICE)) && !disable_ehc)
                                         result = parse_and_open_device(message->open.device+sizeof(DEVICE),message->open.resultfd);
+				*/
 				else
 					result = -6;
 			}	

@@ -52,7 +52,9 @@ NOTE: i don't necessary
 #endif
 */
 
-#define VERSION "5.0"
+char *str_trace="";
+
+#define VERSION "5.1"
 
 #define INPUT_TITLEID_H 1
 int INPUT_TITLEID_L= 36;

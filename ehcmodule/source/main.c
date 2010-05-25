@@ -262,7 +262,7 @@ extern u32 current_port;
 int main(void)
 {
 
-current_port=use_usb_port1!=0;
+current_port= ((u32) use_usb_port1)!=0;
 // changes IOS vector interrupt to crt0.s routine
 
 //swi_mload_led_on();

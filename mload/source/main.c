@@ -41,8 +41,8 @@
 #include "swi_mload.h"
 
 #define MLOAD_VER	 5
-#define MLOAD_SUBVER 0
-#define STR_VERSION "dev/mload v5.0 (c) 2009-2010, Hermes\n"
+#define MLOAD_SUBVER 1
+#define STR_VERSION "dev/mload v5.1 (c) 2009-2010, Hermes\n"
 
 #define IOS_OPEN				0x01
 #define IOS_CLOSE				0x02
@@ -615,6 +615,8 @@ u8 *p;
 return 0;
 }
 
+int shadow_mload=0;
+
 int main(void)
 {
 	ipcmessage* message;
@@ -658,9 +660,16 @@ int main(void)
                                 //debug_printf("%s try open %sfor fd %d\n",DEVICE,message->open.device,message->open.resultfd);
 				// Checking device name
 				if (0 == strcmp(message->open.device, DEVICE))
-                                  {
-									result = message->open.resultfd;        
-                                  }
+					{
+					if(shadow_mload) result=-6;
+					else result = message->open.resultfd;        
+					}
+				else
+				if (0 == strcmp(message->open.device, DEVICE"/OFF"))
+					{
+					shadow_mload=1;
+					result=-6;
+					}
 				
 				else
 					result = -6;
