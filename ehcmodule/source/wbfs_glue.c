@@ -46,21 +46,20 @@ u32 n_sec,sec_size;
 /*static*/ int read_sector(void *ign,u32 lba,u32 count,void*buf)
 {
         int ret;
-		
-	
-	    os_sync_after_write(buf, count*sec_size);
 
-	/*	do
-		{*/
+	os_sync_after_write(buf, count*sec_size);
+
+	/*do {*/
         ret = USBStorage_Read_Sectors(lba,count, buf);
-		/*}*/
-        if(!ret) return 1;
+	/*}*/
+        if (!ret) 
+		return 1;
 
         os_sync_before_read(buf, count*sec_size);
         return 0;
 }
 
-static wbfs_disc_t *wbfs_disc=NULL;
+static wbfs_disc_t *wbfs_disc = NULL;
 
 u8 *disc_buff=NULL;
 extern u32 current_disc_lba;
@@ -82,50 +81,56 @@ static wbfs_t *p=NULL;
 
 void release_wbfs_mem(void)
 {
-  if(disc_buff) WBFS_Free(disc_buff);disc_buff=NULL;
+  if (disc_buff)
+	  WBFS_Free(disc_buff);
+  disc_buff = NULL;
 
-  if(wbfs_disc) 
-	{	
-	wbfs_close_disc(wbfs_disc);wbfs_disc=NULL;
-	}
-  if(p)
-	wbfs_close(p);p= NULL;
+  if (wbfs_disc) {	
+	wbfs_close_disc(wbfs_disc);
+	wbfs_disc = NULL;
+  }
+
+  if (p)
+	wbfs_close(p);
+  p = NULL;
 
 }
 
 wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 {
-        
-		
-		static u8 old_discid[6]="";
+	static u8 old_discid[6] = "";
 
-		if(disc_buff) WBFS_Free(disc_buff);disc_buff=NULL;
+	if (disc_buff) 
+		WBFS_Free(disc_buff);
+	disc_buff = NULL;
 		
-		// opens the hd only is is not opened
-		if(!p)
-			{
-			USBStorage_Init();
-			n_sec =  USBStorage_Get_Capacity(&sec_size);
-			//debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
-			if (n_sec==0)
-                return NULL; //no hd
-			p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0); 
-			if(!p) // no partition
-                return NULL;
-			}
-		// close previously disc opened except if discid is equal
-		if(wbfs_disc) 
-			{
+	// opens the hd only is is not opened
+	if (!p) {
+		USBStorage_Init();
+		n_sec =  USBStorage_Get_Capacity(&sec_size);
+		//debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
+		if (n_sec == 0)
+			return NULL; //no hd
+		p = wbfs_open_hd(read_sector, 0, 0, sec_size, n_sec,partition, 0); 
+		if(!p) // no partition
+			return NULL;
+	}
+
+	// close previously disc opened except if discid is equal
+	if(wbfs_disc) {
 			
-			if(!memcmp(old_discid,discid,6)) return wbfs_disc;
+		if (!memcmp(old_discid, discid, 6)) 
+			return wbfs_disc;
 			
-			wbfs_close_disc(wbfs_disc);wbfs_disc=NULL;
-			}
+		wbfs_close_disc(wbfs_disc);
+		wbfs_disc = NULL;
+	}
 
         // open the disc
-        wbfs_disc=wbfs_open_disc(p, discid);
+        wbfs_disc = wbfs_open_disc(p, discid);
 
-		if(wbfs_disc) memcpy(old_discid,discid,6);
+	if (wbfs_disc)
+		memcpy(old_discid, discid, 6);
 
         return wbfs_disc;
 }

@@ -51,16 +51,15 @@ int timer1_id=-1;
 
 void ehci_usleep(u32 time)
 {
-static u32 message;
-//int n;
+	static u32 message;
+	//int n;
 
 	//os_message_queue_send(timer1_queuehandle, 0x555, 0);
 	//os_restart_timer(timer1_id, time);
 	timer1_id=os_create_timer(time, 1000*1000*10, timer1_queuehandle, 0x0);
-    os_message_queue_receive(timer1_queuehandle,(void *) &message, 0);
+	os_message_queue_receive(timer1_queuehandle, (void *) &message, 0);
 	os_stop_timer(timer1_id);
 	os_destroy_timer(timer1_id);
-
 }
 
 void ehci_msleep(int msec)
@@ -74,12 +73,19 @@ void ehci_msleep(int msec)
 void ehci_udelay(int usec)
 {
         u32 tmr,temp;
-		u32 time_usec;
+	u32 time_usec;
 
         tmr = get_timer();
-        time_usec=2*usec;
+        time_usec = 2*usec;
 		
-        while (1) {temp=get_timer()-tmr;if(((int) temp)<0) tmr = get_timer(); if(((int)temp) > time_usec) break;}
+        while (1) {
+		temp = get_timer() - tmr;
+		if (((int) temp) < 0) 
+			tmr = get_timer(); 
+		
+		if (((int)temp) > time_usec) 
+			break;
+	}
 		
 }
 void ehci_mdelay(int msec)//@todo not really sleeping..
@@ -88,11 +94,16 @@ void ehci_mdelay(int msec)//@todo not really sleeping..
 		u32 time_usec;
 
         tmr = get_timer();
-        time_usec=2048*msec;
+        time_usec = 2048 * msec;
 
-        while (1) {temp=get_timer()-tmr;if(((int) temp)<0) tmr = get_timer(); if(((int)temp) > time_usec) break;}
-		
+        while (1) {
+		temp = get_timer() - tmr;
+		if (((int) temp) < 0) 
+			tmr = get_timer(); 
 
+		if( ((int)temp) > time_usec) 
+			break;
+	}
 }
 
 
@@ -100,7 +111,7 @@ void ehci_mdelay(int msec)//@todo not really sleeping..
 
 int ehc_loop(void);
 
-int heaphandle=-1;
+int heaphandle = -1;
 unsigned int heapspace[0x5000/*0x8800*/] __attribute__ ((aligned (32)));
 
 
@@ -113,7 +124,9 @@ void direct_os_sync_before_read(void* ptr, int size);
 void direct_os_sync_after_write(void* ptr, int size);
 void ic_invalidate(void);
 
-static u32 vector[2]={ 0xE51FF004, 0}; // ldr pc,=addr
+static u32 vector[2] = { 
+	0xE51FF004, 0        // ldr pc,=addr
+};
 
 u32 syscall_base;
 
@@ -125,21 +138,20 @@ void write_access_perm(u32 flags);
 
 static void di_patch(u32 addr1, u32 addr2)
 {
-u32 perm;
+	u32 perm;
+	perm = read_access_perm();
 
-	perm=read_access_perm();
 	write_access_perm(0xffffffff);
 	
-	if(*((u32 *) addr2)==0xE6000170) // detect an unused syscall in dev/di to store the entry
-		{
+	if (*((u32 *) addr2) == 0xE6000170) { // detect an unused syscall in dev/di to store the entry
+
 		vector[1]= ((u32) my_di_os_message_queue_receive) | 1;
 		memcpy((void *) addr2, vector, 8);
 		direct_os_sync_after_write((void *) addr2, 8);
 
-		*((u32 *) addr1)= 0xEA000000 | (((addr2-addr1)/4-2) & 0xFFFFFF); // change the jump
+		*((u32 *) addr1) = 0xEA000000 | (((addr2 - addr1) / 4 - 2) & 0xFFFFFF); // change the jump
 		direct_os_sync_after_write((void *) addr1, 4);
-		}
-
+	}
 	write_access_perm(perm);
 
 }
@@ -148,10 +160,10 @@ int copy_int_vect(u32 ios, u32 none)
 {
 	ic_invalidate();
 
-	switch(ios)
+	switch (ios)
 	{
 	case 36:
-    // WARNING!!!: IOS 36 ins not recommended because it fails using the ehcmodule some times
+		// WARNING!!!: IOS 36 ins not recommended because it fails using the ehcmodule some times
 		vector[1]= (u32) interrupt_vector;
 		
 		memcpy((void *) 0xFFFF1E78, vector,8); // fix interrupt jump
@@ -159,7 +171,6 @@ int copy_int_vect(u32 ios, u32 none)
 		break;
 
 	case 37:
-
 		// patch for DI (IOS37 v3869) os_message_queue_receive() syscalls
 		di_patch(0x20205DE8, 0x2020408c);
 
@@ -181,8 +192,7 @@ int copy_int_vect(u32 ios, u32 none)
 		direct_os_sync_after_write((void *)  0xFFFF1F68, 8);
 		break;
 
-	case 38:
-		
+	case 38:		
 		// patch for DI (IOS38 v3867) os_message_queue_receive() syscalls
 		di_patch(0x20205B14, 0x20203E6C);
 
@@ -217,7 +227,7 @@ int copy_int_vect(u32 ios, u32 none)
 		direct_os_sync_after_write((void *) patch2_timer_cont, 8);
 
 		vector[1]= (u32) 0xFFFF1FF4;
-		memcpy((void *) int_send_device_message, vector,8); // patch3 ->send device message
+		memcpy((void *) int_send_device_message, vector, 8); // patch3 ->send device message
 		direct_os_sync_after_write((void *) int_send_device_message, 8);
 
 		vector[1]= (u32) interrupt_vector;
@@ -227,12 +237,11 @@ int copy_int_vect(u32 ios, u32 none)
 		break;
 
 	case 60:
-
 		// patch for DI (IOS60 v6174) os_message_queue_receive() syscalls
 		di_patch(0x20205D94, 0x20203F60);
 
 		vector[1]= (u32) 0xFFFF2130;
-		memcpy((void *) patch1_timer, vector,8); // patch1 -> timer
+		memcpy((void *) patch1_timer, vector, 8); // patch1 -> timer
 		direct_os_sync_after_write((void *) patch1_timer, 8);
 
 		vector[1]= (u32) 0xFFFF214C;
@@ -248,12 +257,9 @@ int copy_int_vect(u32 ios, u32 none)
 		memcpy((void *) 0xFFFF2128, vector,8); // fix interrupt jump
 		direct_os_sync_after_write((void *)  0xFFFF2128, 8);
 		break;
-
 	}
-
-		//*((volatile u32 *)0x0d8000c0) |=0x20;
-
-return 0;
+	//*((volatile u32 *)0x0d8000c0) |=0x20;
+	return 0;
 }
 
 extern char use_usb_port1;
@@ -261,30 +267,26 @@ extern u32 current_port;
 
 int main(void)
 {
+	current_port = ((u32) use_usb_port1) != 0;
+	// changes IOS vector interrupt to crt0.s routine
 
-current_port= ((u32) use_usb_port1)!=0;
-// changes IOS vector interrupt to crt0.s routine
+	//swi_mload_led_on();
 
-//swi_mload_led_on();
+	syscall_base = swi_mload_get_syscall_base();
+	os_sync_after_write((void *) &syscall_base, 4);
 
-syscall_base=swi_mload_get_syscall_base();
-os_sync_after_write((void *) &syscall_base, 4);
-
-swi_mload_call_func((void *) copy_int_vect, (void *) swi_mload_get_ios_base(), NULL);
-
-
-heaphandle = os_heap_create(heapspace, sizeof(heapspace));
-
-void* timer1_queuespace = os_heap_alloc(heaphandle, 0x80);
-
-timer1_queuehandle = os_message_queue_create(timer1_queuespace, 32);
+	swi_mload_call_func((void *) copy_int_vect, (void *) swi_mload_get_ios_base(), NULL);
 
 
+	heaphandle = os_heap_create(heapspace, sizeof(heapspace));
 
-    if(tiny_ehci_init()<0) return -1;
-	
-  
-    ehc_loop();
+	void* timer1_queuespace = os_heap_alloc(heaphandle, 0x80);
 
+	timer1_queuehandle = os_message_queue_create(timer1_queuespace, 32);
+
+	if (tiny_ehci_init() < 0) 
+		return -1;
+
+	ehc_loop();
 	return 0;
 }
