@@ -1414,6 +1414,34 @@ int ehci_reset_device(struct ehci_device *dev)
         return ehci_reset_port(dev->port);
 }
 #include "usbstorage.h"
+
+int  ehci_adquire_usb_port(int port)
+{
+	u32 __iomem	*status_reg = &ehci->regs->port_status[port];
+	u32 status = ehci_readl(status_reg); 
+
+	//if(!(PORT_CONNECT&status)) return -1; //port not connected
+
+	//change owner, port disabled
+	if(!(status & PORT_OWNER))
+		status ^= PORT_OWNER;
+	status &= ~(PORT_PE | PORT_RWC_BITS);
+	ehci_writel(status, status_reg);	
+	ehci_mdelay(5);
+	status = ehci_readl(status_reg);
+	if(status & PORT_OWNER)
+		status ^= PORT_OWNER;
+	status &= ~(PORT_PE | PORT_RWC_BITS);
+	ehci_writel(status, status_reg);	
+	ehci_mdelay(5);
+	
+
+	//enable port	
+	ehci_writel( 0x1801,status_reg);
+    ehci_mdelay(60);
+    return 1;
+}
+
 int ehci_discover(void)
 {
         int i,ret;
@@ -1429,6 +1457,12 @@ int ehci_discover(void)
                 dev->port = i;
 
 				status = ehci_readl(&ehci->regs->port_status[i]);
+				if(!(status & 1)) 
+					ehci_adquire_usb_port(i);					
+					
+				status = ehci_readl(&ehci->regs->port_status[i]);
+
+				
 				if(status & 1)
 						{
 						ret=ehci_reset_port2(i);

@@ -30,7 +30,7 @@ CFLAGS+=-D$(IOS_MODULE) $(DEBUG)
 # the prefix on the compiler executables
 #---------------------------------------------------------------------------------
 #$(DEVKITARM)/bin/
-PREFIX		:= arm-eabi-
+PREFIX		:= $(DEVKITARM)/bin/arm-eabi-
 CC			:= $(PREFIX)gcc
 CXX			:= $(PREFIX)g++
 AR			:= $(PREFIX)ar

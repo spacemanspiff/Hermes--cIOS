@@ -226,7 +226,7 @@ u8 *buff;
 
 
 	 
-	last_disc_lba= USBStorage_Get_Capacity(&sec_size);
+	USBStorage_Get_Capacity(&sec_size,&last_disc_lba);
 
 	if(last_disc_lba==0 || sec_size!=2048)
 		{
@@ -435,6 +435,7 @@ int ehc_loop(void)
 {
 	ipcmessage* message;
 	int timer2_id=-1;
+	static bool first_read=true;
 
 	
 
@@ -649,6 +650,8 @@ int ehc_loop(void)
 										must_read_sectors=0;
 										
                                         result = USBStorage_Init();
+
+										
 										
 										
 										//result=-os_thread_get_priority();
@@ -683,32 +686,30 @@ int ehc_loop(void)
 										}
 								
                                 case USB_IOCTL_UMS_GET_CAPACITY:
-									    n_sec =  USBStorage_Get_Capacity(&sec_size);
-                                        result =n_sec ;
+									    result =  USBStorage_Get_Capacity(&sec_size, &n_sec);
 										if(ioctlv_voidp(vec[0]))
 											{
 											*((u32 *) ioctlv_voidp(vec[0]))= sec_size;
+											*((u32 *) ioctlv_voidp(vec[1]))= n_sec;
 											}
 										
                                         break;
                                 case USB_IOCTL_UMS_READ_SECTORS:
-                                       /* if (verbose)
-                                                debug_printf("%p read sector %d %d %p\n",&vec[0],ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
-												*/
-                                        #ifdef VIGILANTE
-										enable_button=1;
-										#endif
-										result =   USBStorage_Read_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
-							
-										//udelay(ioctlv_u32(vec[1])*125);
-										if(result) break;
 										
+										result =   USBStorage_Read_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
+										if(first_read)
+										{
+											void s_printf(char *format,...);
+											first_read=false;
+										
+											if(result>0)
+												s_printf("first read sector (%i) OK\n",ioctlv_u32(vec[0]));
+											else
+												s_printf("first read sector (%i) ERROR\n",ioctlv_u32(vec[0]));									
+										}
+							
                                         break;
                                 case USB_IOCTL_UMS_WRITE_SECTORS:
-
-									    #ifdef VIGILANTE
-										enable_button=1;
-										#endif
 
                                         result =  USBStorage_Write_Sectors(ioctlv_u32(vec[0]),ioctlv_u32(vec[1]), ioctlv_voidp(vec[2]));
                                         break;

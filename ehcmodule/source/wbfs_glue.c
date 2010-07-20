@@ -105,7 +105,7 @@ wbfs_disc_t * wbfs_init_with_partition(u8*discid, int partition)
 		if(!p)
 			{
 			USBStorage_Init();
-			n_sec =  USBStorage_Get_Capacity(&sec_size);
+			USBStorage_Get_Capacity(&sec_size, &n_sec);
 			//debug_printf("hd found n_sec:%x sec_size %x\n",n_sec,sec_size);
 			if (n_sec==0)
                 return NULL; //no hd

@@ -283,6 +283,7 @@ void s_printf(char *format,...)
 
 void log_status(char *s)
 {
+return;
 u32 status=ehci_readl( &ehci->regs->status);
 u32 statusp=ehci_readl(&ehci->regs->port_status[current_port]);
 
@@ -345,6 +346,8 @@ static s32 __send_cbw(usbstorage_handle *dev, u8 lun, u32 len, u8 flags, const u
                 dev->buffer[14] = 12; 
         else
                 dev->buffer[14] = (cbLen > 6 ? 0x10 : 6);
+
+        dev->buffer[14] = (cb[0] > 0x1f ? 0x0A : 0x06);
         //debug_printf("send cb of size %d\n",dev->buffer[14]);
 	memcpy(dev->buffer + 15, cb, cbLen);
         //hexdump(dev->buffer,CBW_SIZE);
@@ -1018,13 +1021,21 @@ found:
 	retval = USBSTORAGE_EINIT;
 
 	
-	try_status=-1201;
+	try_status=-1201;	
 
     #ifdef MEM_PRINT
 	s_printf("USBStorage_Open(): conf: %x altInterface: %x\n", dev->configuration, dev->altInterface);
 	
 	#endif
+	try_status=-1202;
+	if(USB_SetConfiguration(dev->usb_fd, dev->configuration) < 0) 
+		goto free_and_return;
 
+	try_status=-1203;
+	if(USB_SetAlternativeInterface(dev->usb_fd, dev->interface, dev->altInterface) < 0)
+		goto free_and_return;	
+	s_printf("USB_SetConfiguration() & USB_SetAlternativeInterface() OK\n");
+/*
 	if(USB_GetConfiguration(dev->usb_fd, &conf) < 0)
 		goto free_and_return;
 	try_status=-1202;
@@ -1061,19 +1072,25 @@ usb_timeout=1000*1000;
 	#endif
 	if(retval < 0)
 		goto free_and_return;
-
-
-/*	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_GET_MAX_LUN, 0, dev->interface, 1, max_lun);
+*/
+	u8 max_lun=0;
+	retval = __USB_CtrlMsgTimeout(dev, (USB_CTRLTYPE_DIR_DEVICE2HOST | USB_CTRLTYPE_TYPE_CLASS | USB_CTRLTYPE_REC_INTERFACE), USBSTORAGE_GET_MAX_LUN, 0, dev->interface, sizeof(max_lun), &max_lun);
 	if(retval < 0 )
-		dev->max_lun = 1;
+	{
+		s_printf("Get_Max_Lun(): err, default max_lun=8\n");
+		dev->max_lun = 8;
+	}
 	else
-		dev->max_lun = (*max_lun+1);
+	{
+		dev->max_lun = (max_lun+1);
+		s_printf("Get_Max_Lun(): OK: %i\n",dev->max_lun);
+	}
 	
 
-	if(retval == USBSTORAGE_ETIMEDOUT)*/
+/*	if(retval == USBSTORAGE_ETIMEDOUT)*/
 
 	/* NOTE: from usbmassbulk_10.pdf "Devices that do not support multiple LUNs may STALL this command." */
-		dev->max_lun = 8; // max_lun can be from 1 to 16, but some devices do not support lun 
+//		dev->max_lun = 8; // max_lun can be from 1 to 16, but some devices do not support lun 
 	
 	retval = USBSTORAGE_OK;
 
@@ -1117,7 +1134,7 @@ usb_timeout=1000*1000;
 	}
 
 	#ifdef MEM_PRINT
-	s_printf("USBStorage_Open(): return 0\n");
+	s_printf("USBStorage_Open(): OK, return 0\n");
 	
 	#endif
 
@@ -1194,7 +1211,7 @@ s32 USBStorage_MountLUN(usbstorage_handle *dev, u8 lun)
 		goto ret;
 	retval = USBStorage_ReadCapacity(dev, lun, &dev->sector_size[lun], &dev->n_sector[lun]);
 	#ifdef MEM_PRINT
-	   s_printf("    ReadCapacity ret %i\n",retval);
+	   s_printf("    ReadCapacity ret %i  sector_size: %u  sectors: %u\n",retval,dev->sector_size[lun],dev->n_sector[lun]);
 	#endif
 
  
@@ -1245,17 +1262,17 @@ s32 USBStorage_ReadCapacity(usbstorage_handle *dev, u8 lun, u32 *sector_size, u3
 	s32 retval;
 	u8 cmd[] = {SCSI_READ_CAPACITY, lun << 5};
 	u8 *response = ((u8 *)dev->buffer)+2048; //USB_Alloc(8);
-        u32 val;
+    u32 val;
 	if(!response) return -ENOMEM;
 
 	retval = __cycle(dev, lun, response, 8, cmd, 2, 0, NULL, NULL, USBSTORAGE_CYCLE_RETRIES);
 	if(retval >= 0)
 	{
                 
-                memcpy(&val, response, 4);
+        memcpy(&val, response, 4);
 		if(n_sectors != NULL)
                         *n_sectors = be32_to_cpu(val);
-                memcpy(&val, response + 4, 4);
+        memcpy(&val, response + 4, 4);
 		if(sector_size != NULL)
 			*sector_size = be32_to_cpu(val);
 		retval = USBSTORAGE_OK;
@@ -1569,6 +1586,7 @@ s32 USBStorage_Init(void)
 	try_status=-1; 
     unplug_device=1;
 	__mounted=0;
+	use_alternative_timeout=1;
 
 #ifdef MEM_PRINT
 s_printf("\n***************************************************\nUSBStorage_Init()\n***************************************************\n\n");
@@ -1593,12 +1611,12 @@ s_printf("\n***************************************************\nUSBStorage_Init
                 struct ehci_device *dev = &ehci->devices[i];
 
 
+
 				dev->port=i;
 				current_port=i;
                 if(dev->id != 0)
 					{
 		            unplug_device=1;
-					
 
 					ret=ehci_reset_port(i);
 					ehci_msleep(20);
@@ -1634,6 +1652,12 @@ s_printf("\n***************************************************\nUSBStorage_Init
 					{
 				    unplug_device=1;
 					status = ehci_readl(&ehci->regs->port_status[i]);
+					if(!(status & 1)) 
+					{
+						ehci_adquire_usb_port(i);
+						s_printf("adquire port: %i\n",i);
+					}
+					status = ehci_readl(&ehci->regs->port_status[i]);					
 
 					#ifdef MEM_PRINT
 					s_printf("USBStorage_Init() status %x\n",status);
@@ -1669,15 +1693,18 @@ s_printf("\n***************************************************\nUSBStorage_Init
         return try_status;
 }
 
-s32 USBStorage_Get_Capacity(u32*sector_size)
+s32 USBStorage_Get_Capacity(u32*sector_size, u32*n_sectors)
 {
-if(sector_size) *sector_size = 0;
+   if(sector_size) *sector_size = 0;
+   if(n_sectors) *n_sectors = 0;
+
    if(__mounted == 1 && __lun!=16)
    {
-           if(sector_size){
+           if(sector_size && n_sectors){
                    *sector_size = __usbfd.sector_size[__lun];
+				   *n_sectors = __usbfd.n_sector[__lun];
            }
-           return __usbfd.n_sector[__lun];
+           return 1;
    }
    return 0;
 }
@@ -1722,22 +1749,27 @@ if(!ums_init_done) return -1009;
 
 	USB_FreeDescriptors(&udd);
 
-	if(USB_GetConfiguration(__usbfd.usb_fd, &conf) <0) return -1000;
+	//if(USB_GetConfiguration(__usbfd.usb_fd, &conf) <0) return -1000;
 
 	usb_timeout=10000*1000;
+
+	if(USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
+		
+	if(USB_SetAlternativeInterface(__usbfd.usb_fd, __usbfd.interface, __usbfd.altInterface) < 0) return -1002;
+	/*
 
 	if((conf != __usbfd.configuration || (force_flags & 2)) && USB_SetConfiguration(__usbfd.usb_fd, __usbfd.configuration) < 0) return -1001;
 		
 	if(__usbfd.altInterface != 0 && USB_SetAlternativeInterface(__usbfd.usb_fd, __usbfd.interface, __usbfd.altInterface) < 0) return -1002;
-	
+	*/
 	if(use_alternative_timeout) usb_timeout=1000*1000;
 			else usb_timeout=200*1000;
 
-	if( __usbstorage_reset(&__usbfd,0)<0) return -1003;
+	//if( __usbstorage_reset(&__usbfd,0)<0) return -1003;
 			
 	usb_timeout=1000*1000;
 
-	if(_old_device.use_maxlun || (force_flags & 1))
+	//if(_old_device.use_maxlun || (force_flags & 1))
 		{
 		__usbfd.max_lun = 0;
 
