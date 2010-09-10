@@ -96,3 +96,16 @@ handleDiCommand:
 	ldr	r3, =addr_di_cmd_reentry
 	ldr	r3, [r3]
 	bx	r3
+
+/* Address conversion */
+	.code 32
+	.global VirtToPhys
+VirtToPhys:
+	and     r0, #0x7fffffff
+	bx      lr
+
+	.global PhysToVirt
+PhysToVirt:
+	orr     r0, #0x80000000
+	bx      lr
+	

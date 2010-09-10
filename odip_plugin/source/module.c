@@ -25,10 +25,10 @@
 
 #include <wbfs.h>
 #include <di.h>
+#include "frag.h"
 
-#ifdef DEBUG
 #include <debug.h>
-#endif
+
 dipstruct dip= {0};
 
 #define WII_DVD_SIGNATURE 0x5D1C9EA3
@@ -115,6 +115,9 @@ u8 mem_index[2048] __attribute__ ((aligned (32)));
 
 int read_from_device_out(void *outbuf, u32 size, u32 lba)
 {
+
+	if (dip.frag_mode) 
+		return Frag_Read((u8 *)outbuf, size, lba);
 
 	if (dip.has_id) 
 		return usb_read_device((u8 *)outbuf, size, lba);
@@ -320,7 +323,7 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 	u8 cmd = ((u8 *) inbuf)[0];
 
 #ifdef DEBUG
-	s_printf("DIP::DI_EmulateCmd(%x, %x, %x)", cmd, outbuf, outbuf_size);
+	s_printf("DIP::DI_EmulateCmd(%x, %x, %x)\n", cmd, outbuf, outbuf_size);
 #endif
 
 	if(_noinit)
@@ -400,6 +403,7 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 
 			case IOCTL_DI_SETUSBMODE: {  
 				dip.has_id = inbuf[1];
+				dip.frag_mode = 0;
 				// Copy id
 				if (dip.has_id) {
 					dip_memcpy(dip.id, (u8 *)&(inbuf[2]), 6);
@@ -414,6 +418,63 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 				os_sync_after_write(outbuf, outbuf_size);
 				res = 0;
 				break;
+
+			// Set FRAG mode
+			case IOCTL_DI_FRAG_SET:
+				{
+					u32   device   = inbuf[1];
+					void *fraglist = (void*)inbuf[2];
+					int   size	 = inbuf[3];
+
+					// Close frag
+					Frag_Close();
+
+					// Disable mode
+					dip.frag_mode = 0;
+					dip.has_id = 0;
+					*outbuf = 0;
+
+					// Check device
+					if (device && fraglist && size) {
+						// Convert address
+						fraglist = VirtToPhys(fraglist);
+
+						// Open device
+						res = Frag_Init(device, fraglist, size);
+						*outbuf = res;
+
+						// Enable mode
+						if (res > 0) {
+							dip.frag_mode = 1;
+							dip.has_id = device;
+						}
+					}
+					
+					res = 0;
+					break;
+				}
+
+			// Get IO mode
+			case IOCTL_DI_MODE_GET:
+				{
+					/* return all mode bits */
+					*outbuf = 0;
+					if (dip.frag_mode) *outbuf = 0x10;
+					else if (fat_mode) *outbuf = 0x08;
+					else if (dip.has_id) *outbuf = 0x04;
+					else if (dip.dvdrom_mode) *outbuf = 0x01;
+					break;
+				}
+
+			// debug stuff
+			case IOCTL_DI_HELLO:
+				{
+					dip_memcpy((u8*)outbuf, (u8*)"HELO", 4);
+					outbuf[1] = dip.has_id;
+					outbuf[2] = dip.frag_mode;
+					break;
+				}
+
 
 			case IOCTL_DI_DISABLERESET:
 				dip.disableReset = *((u8 *) (&inbuf[1]));
@@ -541,7 +602,9 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 					}
 
 				DIP_StopMotor();
-				res = usb_open_device(dip.has_id - 1, &(dip.id[0]), dip.partition);
+				if (!dip.frag_mode) {
+					res = usb_open_device(dip.has_id - 1, &(dip.id[0]), dip.partition);
+				}
 				break;
 			}
 			case IOCTL_DI_UNENCREAD:
@@ -564,5 +627,6 @@ int DI_EmulateCmd(u32 *inbuf, u32 *outbuf, u32 outbuf_size)
 				res = handleDiCommand(inbuf, outbuf, outbuf_size);
 				break;
 	}
+	dbg_printf("DIP::res=%d\n", res);
 	return res;
 }
