@@ -48,6 +48,10 @@
 #define IOCTL_DI_DISABLERESET   0xF6
 #define IOCTL_DI_CUSTOMCMD	0xFF
 
+#define IOCTL_DI_FRAG_SET		0xF9
+#define IOCTL_DI_MODE_GET		0xFA
+#define IOCTL_DI_HELLO			0xFB
+
 #define IOCTL_DI_13             0x13
 #define IOCTL_DI_14             0x14
 #define IOCTL_DI_15             0x15
@@ -69,6 +73,7 @@ typedef struct {
 	u32 currentError; // offset 0x20
 	u8 disableReset;
 	u8 reading;
+	u8 frag_mode;
 } __attribute__((packed)) dipstruct;
 
 extern dipstruct dip;

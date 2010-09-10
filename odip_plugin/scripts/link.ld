@@ -8,18 +8,60 @@ ENTRY(_start)
 	Current settings are for the EHC module from IOS 31.  actually this is free space in this IOS
  */
 
+
 MEMORY {
-	exe(rwx)	: ORIGIN = 0x1377E000, LENGTH = 0x1600
-	ram(rw)		: ORIGIN = 0x1377F600, LENGTH = 0xA00
+	exe(rwx)	: ORIGIN = 0x1377C000, LENGTH = 0x2200
+	ram(rw)		: ORIGIN = 0x1377E200, LENGTH = 0x1E00 /* END 13780000 */
+				  /* end must not exceed mload ios_exe end */
 }
 
+__exe_start_virt__			= 0x1377C000;
+__exe_start_phys__			= 0x1377C000;
+__ram_start_virt__			= 0x1377E200;
+__ram_start_phys__			= 0x1377E200;
+__ios_info_table_start		= 0x0;
 
-
+/*
+orig:
+MEMORY {
+		exe(rwx)	: ORIGIN = 0x1377E000, LENGTH = 0x1600
+		ram(rw)		: ORIGIN = 0x1377F600, LENGTH = 0xA00
+}
 __exe_start_virt__			= 0x1377E000;
 __exe_start_phys__			= 0x1377E000;
 __ram_start_virt__			= 0x1377F600;
 __ram_start_phys__			= 0x1377F600;
 __ios_info_table_start		= 0x0;
+*/
+
+
+/*
+
+uloader 5.1E:
+
+	ehcmodule:
+	exe(rwx)        : ORIGIN = 0x13700000, LENGTH = 0x6000
+	ram(rw)         : ORIGIN = 0x13706000, LENGTH = 0x2A000 // END 0x1372E000
+
+	fatffs:
+	exe(rwx)        : ORIGIN = 0x13730000, LENGTH = 0xa800
+	ram(rwx)        : ORIGIN = 0x1373a800, LENGTH = 0x40000 // END 1377A800
+
+	odip:
+	exe(rwx)        : ORIGIN = 0x1377E000, LENGTH = 0x1600
+	ram(rw)         : ORIGIN = 0x1377F600, LENGTH = 0xA00
+
+	mload:
+	exe(rwx)        : ORIGIN = 0x138c0000, LENGTH = 0x4000
+	ram(rw)         : ORIGIN = 0x138c8000, LENGTH = 0x8000 // END 138D0000
+	ios_exe(rw)     : ORIGIN = 0x13700000, LENGTH = 0x80000 // END 13780000
+
+cfg 5x dip_frag:
+	exe(rwx)        : ORIGIN = 0x13700000, LENGTH = 0x2000
+	ram(rw)         : ORIGIN = 0x13702000, LENGTH = 0x40000
+
+*/
+
 
  
 SECTIONS

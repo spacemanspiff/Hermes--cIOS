@@ -17,4 +17,8 @@
 
 
 void dip_memset(u8 *buf, u32 c, u32 size);
+
+void *VirtToPhys(void *address);
+void *PhysToVirt(void *address);
+
 #endif

@@ -4,6 +4,10 @@
 
 #include <syscalls.h>
 
+#include "usb.h"
+
+#define os_puts usb_puts
+
 #ifdef DEBUG
 
 static char mem_cad[32];
